@@ -122,4 +122,58 @@ describe("validatePublicUrl", () => {
   it("accepts a routable IPv6 address", () => {
     expectOk("http://[2001:db8::1]/");
   });
+
+  it("rejects hostnames with a trailing FQDN-root dot the same as without it", () => {
+    expectRejected("http://localhost./");
+    expectRejected("http://localhost.:8080/");
+    expectRejected("http://printer.local./");
+    expectRejected("http://service.internal./");
+  });
+
+  it("rejects IPv4-compatible IPv6 addresses (deprecated ::a.b.c.d form) embedding private IPv4", () => {
+    expectRejected("http://[::127.0.0.1]/"); // canonicalises to [::7f00:1]
+    expectRejected("http://[::7f00:1]/");
+    expectRejected("http://[::192.168.1.1]/");
+    expectRejected("http://[::10.0.0.1]/");
+    expectRejected("http://[::169.254.169.254]/");
+  });
+
+  it("accepts an IPv4-compatible IPv6 address embedding a public IPv4", () => {
+    expectOk("http://[::8.8.8.8]/");
+  });
+
+  it("rejects NAT64 (64:ff9b::/96) addresses embedding private IPv4", () => {
+    expectRejected("http://[64:ff9b::127.0.0.1]/");
+    expectRejected("http://[64:ff9b::7f00:1]/");
+    expectRejected("http://[64:ff9b::a9fe:a9fe]/"); // 169.254.169.254
+  });
+
+  it("rejects 6to4 (2002::/16) addresses embedding private IPv4", () => {
+    expectRejected("http://[2002:7f00:1::]/"); // embeds 127.0.0.1
+    expectRejected("http://[2002:a9fe:a9fe::]/"); // embeds 169.254.169.254
+    expectRejected("http://[2002:c0a8:101::]/"); // embeds 192.168.1.1
+  });
+
+  it("accepts a 6to4 address embedding a public IPv4", () => {
+    expectOk("http://[2002:0808:0808::]/"); // embeds 8.8.8.8
+  });
+
+  it("rejects benchmarking, IETF protocol assignment and 6to4 relay anycast IPv4 ranges", () => {
+    expectRejected("http://198.18.0.1/");
+    expectRejected("http://198.19.255.255/");
+    expectRejected("http://192.0.0.1/");
+    expectRejected("http://192.88.99.1/");
+  });
+
+  it("does not reject IPv4 addresses merely adjacent to the newly-added ranges", () => {
+    expectOk("http://198.17.255.255/");
+    expectOk("http://198.20.0.1/");
+    expectOk("http://192.0.1.1/");
+    expectOk("http://192.88.98.1/");
+  });
+
+  it("rejects reserved 240.0.0.0/4 addresses", () => {
+    expectRejected("http://240.0.0.1/");
+    expectRejected("http://250.1.1.1/");
+  });
 });

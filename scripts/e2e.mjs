@@ -120,6 +120,32 @@ async function main() {
     return;
   }
 
+  // 3a. No two consecutive steps are exact duplicates (same agent+label+detail+url) — regression check
+  // for the live bug where every search step appeared twice in the trace.
+  const allSteps = investigation.steps ?? [];
+  for (let i = 1; i < allSteps.length; i++) {
+    const prev = allSteps[i - 1];
+    const cur = allSteps[i];
+    if (prev.agent === cur.agent && prev.label === cur.label && prev.detail === cur.detail && prev.url === cur.url) {
+      fail(`Steps ${i - 1} and ${i} are exact duplicates: ${stepLine(cur)}`);
+      return;
+    }
+  }
+
+  // 3b. Total pipeline time (finishedAt - startedAt) stays within the 120s run cap plus slack —
+  // regression check for the live bug where a run stayed "running" for >9 minutes with no progress.
+  if (investigation.startedAt && investigation.finishedAt) {
+    const startedMs = Date.parse(investigation.startedAt);
+    const finishedMs = Date.parse(investigation.finishedAt);
+    if (Number.isFinite(startedMs) && Number.isFinite(finishedMs)) {
+      const pipelineSec = (finishedMs - startedMs) / 1000;
+      if (pipelineSec > 130) {
+        fail(`Pipeline time (finishedAt - startedAt) was ${pipelineSec.toFixed(1)}s, expected <= 130s.`);
+        return;
+      }
+    }
+  }
+
   let verdictCount = 0;
   let evidenceCount = 0;
 
@@ -151,6 +177,16 @@ async function main() {
     if (verdictCount === 0) {
       fail('Status "done" but no claim has a verdict.');
       return;
+    }
+    if (host === "garnier.pt") {
+      const hasSpecificInvestigation = (investigation.claims ?? []).some(
+        (claim) => /\d+\s*%/.test(claim.text) && /veg|sustent|ambient|natural|recycl|recicl/i.test(claim.text)
+          && (claim.required?.length ?? 0) > 0 && (claim.checkedUrls?.length ?? 0) > 0,
+      );
+      if (!hasSpecificInvestigation) {
+        fail("Garnier run finished without investigating a measurable sustainability claim.");
+        return;
+      }
     }
   } else {
     // 5. "incomplete" always carries a user-readable reason.

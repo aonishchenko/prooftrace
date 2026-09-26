@@ -99,9 +99,24 @@ export interface Assessment {
 }
 
 /** RPC surface of each specialist Durable Object (Certification, Quantitative, Sourcing). */
+/**
+ * Errors thrown inside a Durable Object lose their subclass and fields across RPC, so specialists return
+ * failures as values. `userMessage` is safe to show in the UI.
+ */
+export type RpcResult<T> = { ok: true; value: T } | { ok: false; userMessage: string };
+
+/**
+ * `deadlineMs` is an absolute epoch-ms time. Model calls must finish (including retries/fallback) before it;
+ * when too little time is left the specialist returns { ok:false } instead of starting a call.
+ */
 export interface SpecialistRpc {
-  plan(claim: ExtractedClaim, pageUrl: string): Promise<EvidencePlan>;
-  assess(claim: ExtractedClaim, required: string[], sources: SourceExcerpt[]): Promise<Assessment>;
+  plan(claim: ExtractedClaim, pageUrl: string, deadlineMs: number): Promise<RpcResult<EvidencePlan>>;
+  assess(
+    claim: ExtractedClaim,
+    required: string[],
+    sources: SourceExcerpt[],
+    deadlineMs: number,
+  ): Promise<RpcResult<Assessment>>;
 }
 
 export interface RuleResult {

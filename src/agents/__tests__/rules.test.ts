@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VAGUE_TERMS, decideVerdict } from "../rules";
+import { VAGUE_TERMS, decideVerdict, satisfiesRequirement, unmetRequired } from "../rules";
 import type { Evidence } from "../../shared/types";
 import type { ExtractedClaim } from "../../shared/internal";
 
@@ -185,5 +185,189 @@ describe("decideVerdict", () => {
     const result = decideVerdict(claim, required, [], required);
     expect(result.verdict).toBe("NOT_PUBLICLY_VERIFIABLE");
     expect(result.checks.find((c) => c.name === "Evidence found")?.pass).toBe(false);
+  });
+
+  it("an empty required list can never be BACKED, even with a strong independent anchor and no gaps", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c9",
+      text: "Garnier is approved by Cruelty Free International",
+      type: "certification",
+      brand: "Garnier",
+    };
+    const ev = [
+      evidence({
+        independent: true,
+        supports: "full",
+        scopeMatch: true,
+        satisfies: [],
+      }),
+    ];
+    const result = decideVerdict(claim, [], ev, []);
+    expect(result.verdict).toBe("NOT_PUBLICLY_VERIFIABLE");
+    expect(result.checks.find((c) => c.name === "All required items met")?.pass).toBe(false);
+  });
+
+  it("partial support alone never satisfies a required item for BACKED (only independent+scopeMatch+full does)", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c10",
+      text: "Refilling saves 50% packaging",
+      type: "quantitative",
+      brand: "Acme",
+    };
+    const required = ["Baseline used for the stated figure"];
+    const ev = [
+      evidence({
+        independent: true,
+        supports: "partial",
+        scopeMatch: true,
+        satisfies: [required[0]],
+      }),
+    ];
+    const result = decideVerdict(claim, required, ev, []);
+    expect(result.verdict).toBe("NOT_PUBLICLY_VERIFIABLE");
+  });
+
+  it("whole-word VAGUE_TERMS matching: 'ética' does not match inside 'cosmética'", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c11",
+      text: "A nossa marca de cosmética capilar para todos os dias",
+      type: "sourcing",
+      language: "pt",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("whole-word VAGUE_TERMS matching: 'green' does not match inside 'greenhouse'", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c12",
+      text: "We track our greenhouse gas emissions every year",
+      type: "sourcing",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("whole-word VAGUE_TERMS matching: 'clean' does not match inside 'cleanser'", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c13",
+      text: "Our best-selling cleanser for daily use",
+      type: "sourcing",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("'Green' as a standalone word IS vague ('A nossa ciência é Green')", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c14",
+      text: "A nossa ciência é Green",
+      type: "sourcing",
+      language: "pt",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).toBe("VAGUE");
+  });
+
+  it("a footnote-style marker glued to a word does not count as a bounding number ('vegan*' has no real quantity)", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c15",
+      text: "Fórmula vegan* mais sustentável",
+      type: "sourcing",
+      language: "pt",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).toBe("VAGUE");
+  });
+
+  it("a digit glued to a word as a footnote marker (no unit/percent) does not count as a bounding number", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c16b",
+      text: "Ingredientes de origem natural1 em toda a nossa gama",
+      type: "sourcing",
+      language: "pt",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    // "natural" is in VAGUE_TERMS; the glued footnote digit "1" is not a real quantity, so it must
+    // not bound the term the way a real "50 ml"/"97%" quantity would.
+    expect(result.verdict).toBe("VAGUE");
+  });
+
+  it("a real quantity ('50 ml') bounds an otherwise-vague sourcing term", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c16",
+      text: "Embalagem responsável com 50 ml de recarga",
+      type: "sourcing",
+      language: "pt",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("a 'generic'-typed claim with a real quantity is NOT automatically VAGUE", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c17",
+      text: "Our packaging uses 97% recycled materials",
+      type: "generic",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("a 'generic'-typed claim with a named standard is NOT automatically VAGUE", () => {
+    const claim: ExtractedClaim = {
+      claimId: "c18",
+      text: "Our cocoa follows the Fairtrade programme",
+      type: "generic",
+    };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).not.toBe("VAGUE");
+  });
+
+  it("a 'generic'-typed claim with no quantity or standard is still VAGUE", () => {
+    const claim: ExtractedClaim = { claimId: "c19", text: "We care about the planet", type: "generic" };
+    const result = decideVerdict(claim, [], [], []);
+    expect(result.verdict).toBe("VAGUE");
+  });
+});
+
+describe("satisfiesRequirement", () => {
+  it("is true only for independent + scopeMatch + full support", () => {
+    expect(satisfiesRequirement(evidence({ independent: true, scopeMatch: true, supports: "full" }))).toBe(true);
+  });
+
+  it("is false when support is only partial", () => {
+    expect(satisfiesRequirement(evidence({ independent: true, scopeMatch: true, supports: "partial" }))).toBe(false);
+  });
+
+  it("is false when the source is not independent", () => {
+    expect(satisfiesRequirement(evidence({ independent: false, scopeMatch: true, supports: "full" }))).toBe(false);
+  });
+
+  it("is false when the scope does not match", () => {
+    expect(satisfiesRequirement(evidence({ independent: true, scopeMatch: false, supports: "full" }))).toBe(false);
+  });
+});
+
+describe("unmetRequired", () => {
+  it("returns required items with no evidence satisfying them", () => {
+    const required = ["A", "B", "C"];
+    const ev = [evidence({ independent: true, scopeMatch: true, supports: "full", satisfies: ["A"] })];
+    expect(unmetRequired(required, ev)).toEqual(["B", "C"]);
+  });
+
+  it("does not count partial support as meeting a required item", () => {
+    const required = ["A"];
+    const ev = [evidence({ independent: true, scopeMatch: true, supports: "partial", satisfies: ["A"] })];
+    expect(unmetRequired(required, ev)).toEqual(["A"]);
+  });
+
+  it("returns [] when every required item is satisfied", () => {
+    const required = ["A", "B"];
+    const ev = [
+      evidence({ independent: true, scopeMatch: true, supports: "full", satisfies: ["A"] }),
+      evidence({ independent: true, scopeMatch: true, supports: "full", satisfies: ["B"] }),
+    ];
+    expect(unmetRequired(required, ev)).toEqual([]);
   });
 });

@@ -4,10 +4,22 @@
 // into evidence ProofTrace can trust (never a raw model quote or url without verification).
 import { Agent } from "agents";
 import { z } from "zod";
-import type { Evidence } from "../shared/types";
-import type { Assessment, EvidencePlan, ExtractedClaim, SourceExcerpt, SpecialistId, SpecialistRpc } from "../shared/internal";
-import { callJson } from "./models";
+import type {
+  Assessment,
+  EvidencePlan,
+  ExtractedClaim,
+  RpcResult,
+  SourceExcerpt,
+  SpecialistId,
+  SpecialistRpc,
+} from "../shared/internal";
+import { ModelError, callJson } from "./models";
 import { findExact } from "./quotes";
+// Pure evidence-filtering/satisfies-mapping logic lives in specialist-reconcile.ts (not here) so it
+// can be unit tested in plain Node — see that file's header comment. Import unit tests should import
+// directly from "./specialist-reconcile", not from this file, to avoid pulling in the Cloudflare
+// Agents SDK this class extends.
+import { DEFAULT_REQUIRED, dedupeStrings, reconcileAssessment } from "./specialist-reconcile";
 
 const PlanRawSchema = z.object({
   required: z.array(z.string()),
@@ -23,25 +35,14 @@ const AssessRawSchema = z.object({
       supports: z.enum(["full", "partial", "none"]),
       scopeMatch: z.boolean(),
       independent: z.boolean(),
-      satisfies: z.array(z.string()),
+      // A model may report which required item it satisfies as the item's exact text OR its
+      // 1-based index (as a number or a numeric string); resolveSatisfies() reconciles both — see
+      // specialist-reconcile.ts.
+      satisfies: z.array(z.union([z.string(), z.number()])),
     }),
   ),
   gaps: z.array(z.string()),
 });
-
-type AssessRaw = z.infer<typeof AssessRawSchema>;
-
-function dedupeStrings(values: string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of values) {
-    const trimmed = v.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-}
 
 function buildPlanUser(claim: ExtractedClaim, pageUrl: string): string {
   const lines = [
@@ -61,7 +62,7 @@ function buildAssessUser(claim: ExtractedClaim, required: string[], sources: Sou
   ];
   if (claim.brand) lines.push(`Brand: ${claim.brand}`);
   if (claim.language) lines.push(`Claim language: ${claim.language}`);
-  lines.push("", "Required items (satisfy by exact index or text):");
+  lines.push("", "Required items (report by exact text above, or by number):");
   required.forEach((r, i) => lines.push(`${i + 1}. ${r}`));
   lines.push("", "Fetched sources. Only quote text that appears in a \"passage\" line below, verbatim.");
   sources.forEach((s, i) => {
@@ -79,54 +80,6 @@ function buildAssessUser(claim: ExtractedClaim, required: string[], sources: Sou
   return lines.join("\n");
 }
 
-/** Keep only model-reported evidence that is actually grounded in the given sources, then compute
- * gaps deterministically. Never trusts a model's url or quote without verifying it here. */
-function reconcileAssessment(raw: AssessRaw, required: string[], sources: SourceExcerpt[]): Assessment {
-  const sourceByUrl = new Map(sources.map((s) => [s.url, s]));
-  const requiredSet = new Set(required);
-  const evidence: Evidence[] = [];
-
-  for (const item of raw.evidence) {
-    const source = sourceByUrl.get(item.url);
-    if (!source) continue; // url must be one of the sources we actually gave it
-
-    let matchedQuote: string | null = null;
-    for (const passage of source.passages) {
-      const found = findExact(passage, item.quote);
-      if (found) {
-        matchedQuote = found;
-        break;
-      }
-    }
-    if (!matchedQuote) continue; // drop evidence whose quote isn't verifiable in a given passage
-
-    const satisfies = item.satisfies.filter((s) => requiredSet.has(s));
-
-    evidence.push({
-      url: source.url,
-      issuer: source.issuer,
-      quote: matchedQuote,
-      retrievedAt: source.retrievedAt,
-      cached: source.cached,
-      independent: source.selfDeclared ? false : item.independent,
-      supports: item.supports,
-      scopeMatch: item.scopeMatch,
-      satisfies,
-    });
-  }
-
-  const satisfiedByStrongEvidence = new Set<string>();
-  for (const e of evidence) {
-    if (e.supports === "full" || e.supports === "partial") {
-      for (const s of e.satisfies) satisfiedByStrongEvidence.add(s);
-    }
-  }
-  const unmetRequired = required.filter((r) => !satisfiedByStrongEvidence.has(r));
-  const gaps = dedupeStrings([...unmetRequired, ...raw.gaps]);
-
-  return { evidence, gaps };
-}
-
 export abstract class SpecialistAgent extends Agent<Env> implements SpecialistRpc {
   protected abstract readonly role: SpecialistId;
   /** Specialty knowledge and stance for this agent, defined as a constant in its own file. */
@@ -137,7 +90,8 @@ export abstract class SpecialistAgent extends Agent<Env> implements SpecialistRp
       "You are a ProofTrace evidence-planning specialist.",
       "Claims may be written in Portuguese or another non-English language; read them as written, do not translate them.",
       "Given one sustainability claim about a brand or product, decide what public evidence would be needed to verify it, and propose focused web search queries to find that evidence.",
-      "Return 2-5 concrete, checkable required items — not restatements of the claim itself — and 1-3 search queries in the language most likely to surface primary sources (include the brand name and any named certifier, standard or method). List organisations or domains worth opening first as preferredIssuers.",
+      "Return 2-4 required items — not restatements of the claim itself. Each item must be a short, concrete noun phrase of AT MOST 15 WORDS (for example \"Certifier listing naming Garnier\" or \"Component weights per packaging part\") — never a paragraph or a full sentence.",
+      "Also return 1-3 search queries of AT MOST 10 WORDS EACH, in the language most likely to surface primary sources (include the brand name and any named certifier, standard or method). List organisations or domains worth opening first as preferredIssuers.",
       "Write the required items, queries and preferredIssuers in English, even when the claim itself is in another language.",
       "Respond only with the required JSON.",
       "",
@@ -150,7 +104,7 @@ export abstract class SpecialistAgent extends Agent<Env> implements SpecialistRp
       "You are a ProofTrace evidence-assessment specialist.",
       "Claims and source passages may be written in Portuguese or another non-English language; read them as written, do not translate them in your quotes.",
       "You are given a claim, the required items it must satisfy, and excerpts from fetched public web pages. Each source is marked selfDeclared when it is the brand's own site or its parent group's site.",
-      "For each piece of usable evidence: quote EXACTLY one passage from one source, character for character, with no paraphrase — copy it only from a \"passage\" line you were given. State which source url it came from, which required item(s) (by their exact text) it satisfies, whether it fully, partially, or does not support each item, whether the source is independent of the brand, and whether its scope matches the claim (for example, brand-level approval is not the same scope as approval of every product).",
+      "For each piece of usable evidence: quote EXACTLY one passage of at least four words from one source, character for character, with no paraphrase — copy it only from a \"passage\" line you were given; a short fragment is not usable evidence. State which source url it came from, which required item(s) it satisfies — using the item's EXACT text as given above, or its number — whether it fully, partially, or does not support each item, whether the source is independent of the brand, and whether its scope matches the claim (for example, brand-level approval is not the same scope as approval of every product).",
       "Never invent a quote, url, or certification result, and never treat a selfDeclared source as independent. List required items with no supporting evidence as gaps, written in English.",
       "Respond only with the required JSON.",
       "",
@@ -158,33 +112,73 @@ export abstract class SpecialistAgent extends Agent<Env> implements SpecialistRp
     ].join("\n");
   }
 
-  async plan(claim: ExtractedClaim, pageUrl: string): Promise<EvidencePlan> {
-    const raw = await callJson(this.env, this.role, {
-      system: this.planSystemPrompt(),
-      user: buildPlanUser(claim, pageUrl),
-      schema: PlanRawSchema,
-      schemaName: "evidence_plan",
-    });
+  async plan(claim: ExtractedClaim, pageUrl: string, deadlineMs: number): Promise<RpcResult<EvidencePlan>> {
+    try {
+      const raw = await callJson(this.env, this.role, {
+        system: this.planSystemPrompt(),
+        user: buildPlanUser(claim, pageUrl),
+        schema: PlanRawSchema,
+        schemaName: "evidence_plan",
+        deadlineMs,
+        overrides: { reasoning: "none", maxTokens: 2200, timeoutMs: 30000 },
+      });
 
-    return {
-      required: dedupeStrings(raw.required).slice(0, 5),
-      queries: dedupeStrings(raw.queries).slice(0, 3),
-      preferredIssuers: dedupeStrings(raw.preferredIssuers ?? []),
-    };
-  }
-
-  async assess(claim: ExtractedClaim, required: string[], sources: SourceExcerpt[]): Promise<Assessment> {
-    if (sources.length === 0) {
-      return { evidence: [], gaps: [...required] };
+      const required = dedupeStrings(raw.required).slice(0, 5);
+      const value: EvidencePlan = {
+        required: required.length > 0 ? required : DEFAULT_REQUIRED[this.role],
+        queries: dedupeStrings(raw.queries).slice(0, 3),
+        preferredIssuers: dedupeStrings(raw.preferredIssuers ?? []),
+      };
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, userMessage: rpcErrorMessage(err, `Could not determine what evidence would substantiate this ${this.role} claim.`) };
     }
-
-    const raw = await callJson(this.env, this.role, {
-      system: this.assessSystemPrompt(),
-      user: buildAssessUser(claim, required, sources),
-      schema: AssessRawSchema,
-      schemaName: "evidence_assessment",
-    });
-
-    return reconcileAssessment(raw, required, sources);
   }
+
+  async assess(claim: ExtractedClaim, required: string[], sources: SourceExcerpt[], deadlineMs: number): Promise<RpcResult<Assessment>> {
+    try {
+      if (sources.length === 0) {
+        const gaps = required.length > 0 ? [...required] : ["No independent source found in the pages checked"];
+        return { ok: true, value: { evidence: [], gaps } };
+      }
+
+      const raw = await callJson(this.env, this.role, {
+        system: this.assessSystemPrompt(),
+        user: buildAssessUser(claim, required, sources),
+        schema: AssessRawSchema,
+        schemaName: "evidence_assessment",
+        deadlineMs,
+        overrides: { reasoning: "none", maxTokens: 3000, timeoutMs: 25000 },
+      });
+
+      return { ok: true, value: reconcileAssessment(raw, required, sources) };
+    } catch (err) {
+      // Keep the investigation useful when both hosted models time out or truncate. The only
+      // fallback evidence is the exact claim quoted on its own page; it is never independent and
+      // can never satisfy a required item. The verdict gate still withholds an unsupported verdict.
+      const ownSource = sources.find((source) => source.selfDeclared && source.passages.some((p) => findExact(p, claim.text)));
+      const assessment = reconcileAssessment({
+        evidence: ownSource ? [{
+          url: ownSource.url,
+          quote: claim.text,
+          supports: "partial",
+          scopeMatch: true,
+          independent: false,
+          satisfies: [],
+        }] : [],
+        gaps: [],
+      }, required, sources);
+      return { ok: true, value: {
+        ...assessment,
+        gaps: [...assessment.gaps, "Automated evidence assessment was unavailable; the brand statement remains unverified."],
+      } };
+    }
+  }
+}
+
+/** Errors thrown inside a Durable Object lose their subclass across RPC (see shared/internal.ts), so
+ * `plan`/`assess` never throw — they catch everything and report `{ ok: false, userMessage }` here. */
+function rpcErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ModelError) return err.userMessage;
+  return fallback;
 }

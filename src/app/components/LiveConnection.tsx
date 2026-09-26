@@ -15,10 +15,14 @@ export function LiveConnection({
   id,
   url,
   onState,
+  onFailed,
 }: {
   id: string;
   url: string;
   onState: (investigation: Investigation) => void;
+  /** Called when the initial call rejects or the socket closes for good, so the
+   * caller (App) can re-enable its form instead of staying stuck on "running". */
+  onFailed?: (message: string) => void;
 }) {
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
@@ -46,15 +50,37 @@ export function LiveConnection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Retry must not depend on the mount-only effect above (it never re-runs, since
+  // its deps are `[]`). Reconnect the socket first when it's permanently closed
+  // (a terminal close won't auto-retry, and `agent.ready` would hang forever
+  // without this), then await `ready` and call `start` directly - the server's
+  // start() is idempotent, so re-issuing it is safe even if the first call
+  // actually landed.
   const handleRetry = () => {
     setCallError(null);
-    calledRef.current = false;
-    agent.reconnect();
+    if (agent.connectionError) {
+      agent.reconnect();
+    }
+    agent.ready
+      .then(() => agent.call(INVESTIGATE_METHOD, [{ url, mode: "live" }]))
+      .catch((err: unknown) => {
+        setCallError(err instanceof Error ? err.message : "Failed to start the investigation.");
+      });
   };
 
   const connectionMessage = agent.connectionError
     ? `Lost connection to the investigation (${agent.connectionError.message || agent.connectionError.reason || "connection closed"}). It may still be running on the server.`
     : callError;
+
+  useEffect(() => {
+    if (connectionMessage) {
+      onFailed?.(connectionMessage);
+    }
+    // Re-report whenever the message text changes (new failure, or the same
+    // failure surfacing again after a failed retry); onFailed is expected to be
+    // a stable callback from the caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionMessage]);
 
   return (
     <RunPanel

@@ -1,10 +1,15 @@
 -- Reusable configuration and demo data. Safe to re-run.
+-- reasoning/timeout tuned after an e2e run on https://www.garnier.pt/ showed the quantitative plan()
+-- call taking 37s (DeepSeek V4 Pro, reasoning "high") and the sourcing plan() call taking 117s (Kimi
+-- K2.6, reasoning "high") — well past what the 120s run budget can afford for a single specialist
+-- call. Sourcing now defaults to the faster Flash model with Kimi demoted to fallback only; cert and
+-- quant keep Pro but at reasoning "low" with a shorter timeout.
 INSERT OR REPLACE INTO agent_config (role, model, fallback_model, reasoning, max_tokens, timeout_ms) VALUES
- ('extractor',     '@cf/moonshotai/kimi-k2.6',              '@cf/zai-org/glm-5.3',                     'none', 3000, 45000),
- ('certification', '@cf/deepseek-ai/deepseek-v4-pro-0813',  '@cf/deepseek-ai/deepseek-v4-flash-0731',  'high', 3000, 60000),
- ('quantitative',  '@cf/deepseek-ai/deepseek-v4-pro-0813',  '@cf/deepseek-ai/deepseek-v4-flash-0731',  'high', 3000, 60000),
- ('sourcing',      '@cf/moonshotai/kimi-k2.6',              '@cf/zai-org/glm-5.3',                     'high', 3000, 60000),
- ('action',        '@cf/moonshotai/kimi-k2.6',              '@cf/deepseek-ai/deepseek-v4-flash-0731',  'none', 1500, 45000);
+ ('extractor',     '@cf/moonshotai/kimi-k2.6',                '@cf/zai-org/glm-5.3',                     'none', 3000, 45000),
+ ('certification', '@cf/deepseek-ai/deepseek-v4-pro-0813',    '@cf/deepseek-ai/deepseek-v4-flash-0731',  'low',  3000, 45000),
+ ('quantitative',  '@cf/deepseek-ai/deepseek-v4-pro-0813',    '@cf/deepseek-ai/deepseek-v4-flash-0731',  'low',  3000, 45000),
+ ('sourcing',      '@cf/deepseek-ai/deepseek-v4-flash-0731',  '@cf/moonshotai/kimi-k2.6',                'low',  3000, 60000),
+ ('action',        '@cf/moonshotai/kimi-k2.6',                '@cf/deepseek-ai/deepseek-v4-flash-0731',  'none', 1500, 45000);
 
 INSERT OR REPLACE INTO official_sources (id, name, domain, claim_types, keywords, lookup_url_pattern, independent, notes) VALUES
  ('cfi',        'Cruelty Free International (Leaping Bunny)', 'crueltyfreeinternational.org', 'certification', 'cruelty,crueldade,leaping bunny,animal,testad,tested on animals,cruelty free international', 'https://www.crueltyfreeinternational.org/approved-brands/listing/{slug}/', 1, 'Brand-level approval listing'),

@@ -10,8 +10,24 @@ export function Report({ investigation }: { investigation: Investigation }) {
     return null;
   }
 
-  const investigated = investigation.claims.filter((c) => c.required.length > 0 || c.verdict);
-  const other = investigation.claims.filter((c) => !(c.required.length > 0 || c.verdict));
+  // A claim was actually investigated (and belongs in the full ClaimCard,
+  // verdict badge and gap reasons included) if the run recorded anything
+  // about it at all - not just a verdict or a required-evidence list. A claim
+  // whose investigation failed outright (required: [] with the failure
+  // explained in gaps) must not be silently demoted to "Other claims found"
+  // with its reason hidden.
+  const wasInvestigated = (c: (typeof investigation.claims)[number]) =>
+    Boolean(
+      c.verdict ||
+        c.required.length > 0 ||
+        c.gaps.length > 0 ||
+        c.checkedUrls.length > 0 ||
+        (c.checks && c.checks.length > 0) ||
+        c.claimId === investigation.selectedClaimId,
+    );
+
+  const investigated = investigation.claims.filter(wasInvestigated);
+  const other = investigation.claims.filter((c) => !wasInvestigated(c));
   const allRetrievedAt = investigation.claims.flatMap((c) => c.evidence.map((e) => e.retrievedAt));
   const range = formatUtcRange(allRetrievedAt);
 

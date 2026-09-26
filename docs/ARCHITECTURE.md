@@ -90,20 +90,15 @@ These are capability-based defaults, not a measured ranking for sustainability c
 |---|---|---|---|
 | Coordinator route and Scout tool execution | Code | — | Explicit claim type, URL validation, requests and source records should be deterministic. |
 | Claim extraction | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Structured output, with a programmatic exact-substring check against the live page. |
-| Certification Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about issuer, brand and certification scope from fetched pages; Pro supports function calling. |
-| Quantitative Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about comparison baseline, method and assumptions. Arithmetic runs in code. |
-| Sourcing Specialist | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `high` | Interpret broad wording against specific cited facts. Compare with hosted GLM-5.3 on the Lush case if time permits. |
+| Certification Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `low` for assessment, `none` for planning | Reason about issuer, brand and certification scope from fetched pages. |
+| Quantitative Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `low` for assessment, `none` for planning | Reason about comparison baseline, method and assumptions. Arithmetic runs in code. |
+| Sourcing Specialist | [`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/) | `low` for assessment, `none` for planning | Interpret broad wording against specific cited facts within the live run budget. |
 | Action writing | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Write only from the rule result and fetched evidence. |
 
-[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is a hosted alternative
-for sourcing. [`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/)
-is a hosted latency fallback for Pro. Do not add third-party inference IDs through AI Gateway. Run one actual model
-and Browser Run call during setup to confirm paid access, schema/tool behavior and latency.
-
-Use `workers-ai-provider` with the `AI` binding and `gateway: { id: "prooftrace" }`. With AI SDK v6, use
-`generateText({ output: Output.object({ schema }) })` for structured outputs. Pin compatible versions and test the
-provider's mapping of each model's reasoning option. AI Gateway caching is optional and only identical requests
-can hit; it cannot replace live evidence collection.
+[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is the hosted extractor fallback.
+DeepSeek Flash is the certification and quantitative fallback; Kimi is the sourcing fallback. The implementation
+calls the Workers AI `AI` binding directly with JSON schema output. AI Gateway is optional and can be enabled with
+`AI_GATEWAY_ID`; it cannot replace live evidence collection. No third-party inference IDs are configured.
 
 ## 3. Agents, state and data contract
 
@@ -165,7 +160,7 @@ export interface Evidence {
 
 export interface ClaimResult {
   claimId: string;
-  text: string;                     // exact substring of the submitted page
+  text: string;                     // exact substring of the submitted or discovered page
   sourceUrl: string;
   type: "certification" | "quantitative" | "sourcing" | "generic";
   required: string[];

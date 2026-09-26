@@ -53,6 +53,24 @@ const TYPE_PRIORITY: Record<string, number> = {
   generic: 3,
 };
 
+// The model sometimes returns navigation labels or product names as "generic" claims. Requiring
+// an actual sustainability assertion keeps those labels from preventing linked-page discovery.
+export function isSubstantiveClaim(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const sustainabilityTerm = /sustent|environment|ambient|ecol[oó]g|green|recycl|recicl|reutiliz|refill|recarga|carbon|pegada|vegan|vegano|vegana|vega\*|cruelty|crueldade|animais|animal.test|certific|biodegrad|org[aâ]nic|biol[oó]gic|origem natural|natural origin|fonte renov[aá]vel|renewable|ethical|[ée]tic|respons[aá]vel|eco.?beauty.?score/i;
+  if (!sustainabilityTerm.test(text)) return false;
+  if (words.length >= 4) return true;
+  return words.length >= 2 && /\d+\s*%/.test(text);
+}
+
+/** Catch exact, measurable sustainability lines missed by the model (including attached footnotes). */
+export function numericClaimCandidates(pageText: string): string[] {
+  return pageText.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 20 && line.length <= 300 && /\d+\s*%/.test(line) && isSubstantiveClaim(line))
+    .slice(0, 8);
+}
+
 function buildPromptText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
 
@@ -71,7 +89,8 @@ function buildPromptText(text: string, maxChars: number): string {
 const SYSTEM_PROMPT = [
   "You extract sustainability claims from the text of one fetched web page for ProofTrace, a claim-verification tool.",
   "Find claims about: environmental impact, animal welfare or cruelty-free status, vegan status, ingredient or material sourcing/ethics, recycled or recyclable packaging, natural-origin percentage or composition, refill programs, carbon/footprint claims, and broad terms such as \"sustainable\" or \"eco-friendly\".",
-  "Ignore pure product-efficacy or cosmetic-effect claims (for example \"hydrates for 48h\", \"reduces the appearance of dark spots\"), prices, and site navigation text.",
+  "Ignore pure product-efficacy or cosmetic-effect claims (for example \"hydrates for 48h\", \"reduces the appearance of dark spots\"), prices, product names, slogans, section headings, and site navigation text.",
+  "Prioritize specific, measurable sustainability assertions (especially percentages), followed by concrete certifications and sourcing statements. Quote the full assertion, not an isolated program name or heading.",
   "Quote each claim EXACTLY as it appears on the page: no translation, no paraphrase, no fixing spelling or spacing. Use the shortest self-contained sentence or phrase that carries the claim, including any attached footnote marker (for example a trailing \"*\" or number).",
   "The page text may be written in Portuguese or another non-English language. Read and quote it as written; do not translate it. Report the claim's language as an ISO 639-1 code (e.g. \"en\", \"pt\") when identifiable.",
   "Classify each claim's type: \"certification\" when it names a certifier, approval or label; \"quantitative\" when it states a percentage or number about environmental impact or composition; \"sourcing\" when it describes where or how ingredients/materials are sourced (e.g. \"ethically sourced\"); \"generic\" for a broad, unbounded sustainability term with no certifier, number, or sourcing detail.",
@@ -88,8 +107,15 @@ function buildUserPrompt(page: FetchedPage): string {
  * Extract sustainability claims from a fetched page. Every returned claim's `text` is a verified
  * exact substring of `page.text`; claims whose quote cannot be found verbatim are dropped. Returns
  * `[]` when no sustainability claims are found (not an error).
+ *
+ * Runs in the Coordinator, so a `ModelError` (e.g. "Not enough time left for the extractor model.")
+ * is allowed to throw — the Coordinator already treats claim extraction failures as catchable.
  */
-export async function extractClaims(env: Env, page: FetchedPage, opts?: { max?: number }): Promise<ExtractedClaim[]> {
+export async function extractClaims(
+  env: Env,
+  page: FetchedPage,
+  opts?: { max?: number; deadlineMs?: number },
+): Promise<ExtractedClaim[]> {
   const max = opts?.max ?? DEFAULT_MAX_CLAIMS;
 
   const raw = await callJson(env, "extractor", {
@@ -97,6 +123,8 @@ export async function extractClaims(env: Env, page: FetchedPage, opts?: { max?: 
     user: buildUserPrompt(page),
     schema: RawClaimSchema,
     schemaName: "extracted_claims",
+    deadlineMs: opts?.deadlineMs,
+    overrides: { timeoutMs: 30000 },
   });
 
   const seen = new Set<string>();
@@ -105,6 +133,7 @@ export async function extractClaims(env: Env, page: FetchedPage, opts?: { max?: 
   for (const claim of raw.claims) {
     const actual = findExact(page.text, claim.text);
     if (!actual) continue;
+    if (!isSubstantiveClaim(actual)) continue;
 
     const dedupeKey = actual.trim();
     if (seen.has(dedupeKey)) continue;
@@ -117,6 +146,12 @@ export async function extractClaims(env: Env, page: FetchedPage, opts?: { max?: 
       brand: claim.brand?.trim() || undefined,
       language: claim.language?.trim() || undefined,
     });
+  }
+
+  for (const text of numericClaimCandidates(page.text)) {
+    if (seen.has(text)) continue;
+    seen.add(text);
+    verified.push({ claimId: "", text, type: "quantitative", brand: raw.claims[0]?.brand?.trim() || undefined });
   }
 
   verified.sort((a, b) => (TYPE_PRIORITY[a.type] ?? 4) - (TYPE_PRIORITY[b.type] ?? 4));
