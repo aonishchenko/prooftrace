@@ -1,6 +1,10 @@
 node_modules/
 dist/
 .wrangler/
+# Local credentials and secrets — never commit
+.env
+.env.*
+!.env.example
 .dev.vars
-.env*
+.dev.vars.*
 *.log
