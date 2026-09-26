@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prooftrace",
+  "account_id": "3550b1d16b78241182c4cb602b695110",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/agents/*", "/api/*"] },
+  "observability": { "enabled": true },
+  "ai": { "binding": "AI", "remote": true },
+  "browser": { "binding": "BROWSER", "remote": true },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "prooftrace", "database_id": "99779137-f5b2-42e9-befb-ccd0d57ef183", "migrations_dir": "migrations", "remote": true }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Coordinator", "class_name": "Coordinator" },
+      { "name": "CertificationSpecialist", "class_name": "CertificationSpecialist" },
+      { "name": "QuantitativeSpecialist", "class_name": "QuantitativeSpecialist" },
+      { "name": "SourcingSpecialist", "class_name": "SourcingSpecialist" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Coordinator", "CertificationSpecialist", "QuantitativeSpecialist", "SourcingSpecialist"] }
+  ],
+  // AI_GATEWAY_ID empty = call Workers AI directly. Set to a gateway id once one exists on the account.
+  "vars": { "AI_GATEWAY_ID": "" }
+}
