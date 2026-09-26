@@ -32,8 +32,9 @@ import { issuerOf } from "./text";
 import { validatePublicUrl } from "./url-safety";
 import { ModelError, modelFor } from "./models";
 import { selectPassages } from "./quotes";
-import { extractClaims } from "./extractor";
+import { extractClaims, fallbackExtractClaims } from "./extractor";
 import { decideVerdict } from "./rules";
+import { DEFAULT_REQUIRED } from "./specialist-reconcile";
 import { writeAction } from "./action";
 import type { CertificationSpecialist } from "./certification";
 import type { QuantitativeSpecialist } from "./quantitative";
@@ -53,6 +54,8 @@ import {
 // if the pipeline itself never gets there. See docs/ARCHITECTURE.md §4 and the LIVE E2E FAILURE this
 // file was rewritten to fix (37s + 117s specialist calls, duplicated steps, a run stuck >9min).
 const RUN_DEADLINE_MS = 120_000;
+const EXTRACTION_STAGE_MS = 25_000;
+const PLANNING_STAGE_MS = 30_000;
 // Hard backstop: an in-process timer fires this long after RUN_DEADLINE_MS even if every awaited
 // promise in executePipeline never settles (e.g. a hung fetch/model call with no timeout of its own).
 const HARD_BACKSTOP_EXTRA_MS = 5_000;
@@ -502,28 +505,34 @@ export class Coordinator extends Agent<Env, Investigation> {
     // and the pipeline moves on with whatever it already has, instead of hanging.
     const extractorModel = await modelFor(this.env, "extractor").catch(() => "default model");
     let claims: ExtractedClaim[] = [];
+    let usedFallback = false;
     try {
-      const budgeted = await withBudget(extractClaims(this.env, page, { max: 6, deadlineMs: deadline }), deadline, "extract");
+      const stageDeadline = Math.min(deadline, Date.now() + EXTRACTION_STAGE_MS);
+      const budgeted = await withBudget(extractClaims(this.env, page, { max: 6, deadlineMs: stageDeadline }), stageDeadline, "extract");
       if (budgeted.ok) {
-        claims = budgeted.value;
+        claims = budgeted.value.length ? budgeted.value : fallbackExtractClaims(page, 6);
+        usedFallback = budgeted.value.length === 0 && claims.length > 0;
       } else {
+        claims = fallbackExtractClaims(page, 6);
+        usedFallback = claims.length > 0;
         this.pushStep({
           agent: "extractor",
           kind: "extract",
           status: "info",
           url: page.finalUrl,
-          label: "Claim extraction stopped",
-          detail: "Stopped: time budget exceeded before extraction finished.",
+          label: "Claim extraction used exact-text fallback",
+          detail: "The extraction model exceeded its stage budget; checked measurable page statements directly.",
         });
       }
     } catch (err) {
-      claims = [];
+      claims = fallbackExtractClaims(page, 6);
+      usedFallback = claims.length > 0;
       this.pushStep({
         agent: "extractor",
         kind: "extract",
         status: "fail",
         url: page.finalUrl,
-        label: "Claim extraction failed",
+        label: claims.length ? "Claim extraction used exact-text fallback" : "Claim extraction failed",
         detail: modelErrorMessage(err, "Could not extract claims from the fetched page."),
       });
     }
@@ -534,7 +543,7 @@ export class Coordinator extends Agent<Env, Investigation> {
         status: "ok",
         url: page.finalUrl,
         label: `Extracted ${claims.length} claim(s)`,
-        detail: `model ${extractorModel}`,
+        detail: usedFallback ? "exact-text fallback after model extraction" : `model ${extractorModel}`,
       });
     } else if (Date.now() <= deadline) {
       this.pushStep({
@@ -555,14 +564,23 @@ export class Coordinator extends Agent<Env, Investigation> {
         tried += 1;
         const linkOutcome = await scout.fetchPage(link.url, { allowCache: true });
         if (!linkOutcome.ok) continue;
+        const stageDeadline = Math.min(deadline, Date.now() + EXTRACTION_STAGE_MS);
         const budgeted = await withBudget(
-          extractClaims(this.env, linkOutcome.page, { max: 6, deadlineMs: deadline }),
-          deadline,
+          extractClaims(this.env, linkOutcome.page, { max: 6, deadlineMs: stageDeadline }),
+          stageDeadline,
           "discovery-extract",
         ).catch(() => ({ ok: false, timedOut: true, label: "discovery-extract" }) as const);
-        if (budgeted.ok && budgeted.value.length > 0) {
-          claims = budgeted.value;
+        const found = budgeted.ok && budgeted.value.length > 0
+          ? budgeted.value : fallbackExtractClaims(linkOutcome.page, 6);
+        if (found.length > 0) {
+          claims = found;
           page = linkOutcome.page;
+          usedFallback = !budgeted.ok || budgeted.value.length === 0;
+          if (usedFallback) this.pushStep({
+            agent: "extractor", kind: "extract", status: "info", url: page.finalUrl,
+            label: "Linked-page extraction used exact-text fallback",
+            detail: "The extraction model exceeded its stage budget; checked measurable page statements directly.",
+          });
           break;
         }
       }
@@ -574,7 +592,7 @@ export class Coordinator extends Agent<Env, Investigation> {
         label: claims.length
           ? `Found ${claims.length} claim(s) after checking linked pages`
           : "No claims found after checking linked pages",
-        detail: `model ${extractorModel}`,
+        detail: usedFallback ? "exact-text fallback after model extraction" : `model ${extractorModel}`,
       });
       if (claims.length === 0) {
         this.finish("incomplete", "No sustainability claims found on this page or the linked pages checked.");
@@ -682,58 +700,59 @@ export class Coordinator extends Agent<Env, Investigation> {
     };
     const scout = createEvidenceScout(this.env, { investigationId, onAttempt: claimOnAttempt });
 
-    // a. Plan required evidence with the matching specialist. Never throws (RpcResult contract); a
-    // transport-level failure calling the stub itself is still caught below.
-    let plan: EvidencePlan;
+    // a. Plan required evidence. Bound both stub acquisition and model RPC; otherwise a stalled
+    // Durable Object call leaves the UI showing only the extractor step until the run watchdog fires.
+    const fallbackPlan: EvidencePlan = {
+      required: DEFAULT_REQUIRED[agentId],
+      queries: [uniqueWords([claim.brand || page.issuer, claim.text]).slice(0, 8).join(" ")],
+      preferredIssuers: [],
+    };
+    let plan: EvidencePlan = fallbackPlan;
+    this.pushStep({
+      agent: agentId,
+      kind: "require",
+      status: "info",
+      claimId: claim.claimId,
+      label: "Planning evidence requirements",
+      detail: "Checking what would substantiate this claim.",
+    });
     try {
-      const stub = await this.specialistStub(claim.type);
-      // Explicit annotation: the DO RPC stub's return type distributes the `RpcResult` union over
-      // `Promise` (`Promise<A> | Promise<B>` instead of `Promise<A | B>`), which defeats `withBudget`'s
-      // generic inference if passed directly. Binding it to a plainly-typed `Promise<RpcResult<...>>`
-      // first collapses that back to a normal promise `withBudget` can be called with.
-      const planCall: Promise<RpcResult<EvidencePlan>> = stub.plan(claim, page.finalUrl, deadline);
-      const budgeted = await withBudget(planCall, deadline, "plan");
+      const stageDeadline = Math.min(deadline, Date.now() + PLANNING_STAGE_MS);
+      const planCall = (async (): Promise<RpcResult<EvidencePlan>> => {
+        const stub = await this.specialistStub(claim.type);
+        return await stub.plan(claim, page.finalUrl, stageDeadline);
+      })();
+      const budgeted = await withBudget(planCall, stageDeadline, "plan");
       if (!budgeted.ok) {
-        deadlineHit = true;
-        const msg = "Planning stopped: time budget exceeded before this claim's requirements could be determined.";
-        base.gaps.push(msg);
         this.pushStep({
           agent: agentId,
-          kind: "gap",
+          kind: "require",
           status: "info",
           claimId: claim.claimId,
-          label: "Skipped due to time budget",
-          detail: msg,
+          label: "Using standard evidence requirements",
+          detail: "Specialist planning exceeded 30 seconds; continuing with a focused search.",
         });
-        return base;
-      }
-      const result: RpcResult<EvidencePlan> = budgeted.value;
-      if (!result.ok) {
-        const msg = rpcFailureMessage(result);
-        base.gaps.push(msg);
+      } else if (!budgeted.value.ok) {
         this.pushStep({
           agent: agentId,
-          kind: "gap",
-          status: "fail",
+          kind: "require",
+          status: "info",
           claimId: claim.claimId,
-          label: "Planning failed",
-          detail: msg,
+          label: "Using standard evidence requirements",
+          detail: rpcFailureMessage(budgeted.value),
         });
-        return base;
+      } else {
+        plan = budgeted.value.value;
       }
-      plan = result.value;
     } catch (err) {
-      const msg = modelErrorMessage(err, "Could not determine what evidence would substantiate this claim.");
-      base.gaps.push(msg);
       this.pushStep({
         agent: agentId,
-        kind: "gap",
-        status: "fail",
+        kind: "require",
+        status: "info",
         claimId: claim.claimId,
-        label: "Planning failed",
-        detail: msg,
+        label: "Using standard evidence requirements",
+        detail: modelErrorMessage(err, "Specialist planning was unavailable; continuing with standard requirements."),
       });
-      return base;
     }
     base.required = plan.required;
     this.pushStep({
@@ -843,17 +862,27 @@ export class Coordinator extends Agent<Env, Investigation> {
       retrievedAt: p.fetchedAt,
       cached: p.cached,
       selfDeclared: isSelfDeclaredSource(p.issuer, page.issuer, claim.brand),
-      passages: selectPassages(p.text, passageKeywords, { max: 6 }),
+      // Keep the assessor's prompt small enough to finish within the live run budget while
+      // retaining verbatim excerpts from every fetched source for quote verification.
+      passages: selectPassages(p.text, passageKeywords, { max: 4, window: 420 }),
     }));
     const fetchedIndependentCandidate = sources.some((s) => !s.selfDeclared);
 
     // e. Assess evidence against requirements.
     let assessment: Assessment;
+    this.pushStep({
+      agent: agentId,
+      kind: "match",
+      status: "info",
+      claimId: claim.claimId,
+      label: "Assessing fetched evidence",
+      detail: `Reviewing ${sources.length} fetched source(s) against ${plan.required.length} requirement(s).`,
+    });
     try {
-      const stub = await this.specialistStub(claim.type);
-      // See the matching comment on the `plan()` call above re: the DO RPC stub's distributed-union
-      // return type.
-      const assessCall: Promise<RpcResult<Assessment>> = stub.assess(claim, plan.required, sources, deadline);
+      const assessCall = (async (): Promise<RpcResult<Assessment>> => {
+        const stub = await this.specialistStub(claim.type);
+        return await stub.assess(claim, plan.required, sources, deadline);
+      })();
       const budgeted = await withBudget(assessCall, deadline, "assess");
       if (!budgeted.ok) {
         deadlineHit = true;
@@ -928,6 +957,7 @@ export class Coordinator extends Agent<Env, Investigation> {
 
     const gate = gateVerdict({
       ruleVerdict: rule.verdict,
+      assessmentComplete: !assessment.incomplete,
       searchMode: this.state.searchMode ?? "limited",
       fetchedIndependentCandidate,
       deadlineHit: deadlineHit || Date.now() > deadline,
@@ -940,7 +970,7 @@ export class Coordinator extends Agent<Env, Investigation> {
       kind: "verdict",
       status: "ok",
       claimId: claim.claimId,
-      label: gate.verdict ? `Verdict: ${gate.verdict}` : "Verdict withheld: search not completed",
+      label: gate.verdict ? `Verdict: ${gate.verdict}` : "Verdict withheld: verification incomplete",
       detail: [rule.checks.map((c) => `${c.pass ? "✓" : "✗"} ${c.name}`).join("; "), gate.gap].filter(Boolean).join(" — "),
     });
 

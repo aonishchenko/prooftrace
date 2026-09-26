@@ -96,6 +96,7 @@ export interface EvidenceDraft extends Omit<Evidence, "retrievedAt" | "cached"> 
 export interface Assessment {
   evidence: Evidence[]; // quotes already verified against SourceExcerpt passages
   gaps: string[];
+  incomplete?: boolean; // model fallback: fetched pages were not fully assessed
 }
 
 /** RPC surface of each specialist Durable Object (Certification, Quantitative, Sourcing). */

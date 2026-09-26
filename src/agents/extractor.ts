@@ -71,6 +71,23 @@ export function numericClaimCandidates(pageText: string): string[] {
     .slice(0, 8);
 }
 
+/** Exact-text safety net when hosted extraction is unavailable or exceeds its stage budget. */
+export function fallbackExtractClaims(page: FetchedPage, max = DEFAULT_MAX_CLAIMS): ExtractedClaim[] {
+  const brand = page.title.split(/\s+[|–—-]\s+/).at(-1)?.trim();
+  const numeric = numericClaimCandidates(page.text).map((text) => ({ text, type: "quantitative" as const }));
+  const generic = page.text.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 60 && line.length <= 300 && !/\d+\s*%/.test(line))
+    .filter((line) => isSubstantiveClaim(line) && /\b(?:acreditamos|compromet|reduz|reduzir|melhor|sustent[aá]vel|environmental|ecol[oó]gic|recicl|renewable)\b/i.test(line))
+    .slice(0, 2)
+    .map((text) => ({ text, type: "generic" as const }));
+  return [...numeric, ...generic].slice(0, max).map((claim, index) => ({
+    claimId: `c${index + 1}`,
+    ...claim,
+    brand: brand && brand.length <= 40 ? brand : undefined,
+  }));
+}
+
 function buildPromptText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
 

@@ -70,6 +70,7 @@ export const BRAND_DOMAINS: Record<string, string[]> = {
   yvessaintlaurent: ["yslbeauty.*", "loreal.com"],
   ysl: ["yslbeauty.*", "loreal.com"],
   lush: ["lush.com"],
+  weleda: ["weleda.*"],
 };
 
 function normalizeDomain(domain: string): string {
@@ -116,6 +117,8 @@ export function isSelfDeclaredSource(sourceIssuer: string, ownIssuer: string, br
 
 export interface VerdictGateInput {
   ruleVerdict: Verdict;
+  /** False when the specialist fell back to an unassessed brand quote after model failure. */
+  assessmentComplete?: boolean;
   /** "full" when a web search API was available and confirmed working for this run. */
   searchMode: "full" | "limited";
   /** True when at least one non-self-declared candidate page was successfully fetched for this claim. */
@@ -139,6 +142,9 @@ export interface VerdictGateResult {
 export function gateVerdict(input: VerdictGateInput): VerdictGateResult {
   if (input.ruleVerdict !== "NOT_PUBLICLY_VERIFIABLE") {
     return { verdict: input.ruleVerdict };
+  }
+  if (input.assessmentComplete === false) {
+    return { verdict: undefined, gap: "Fetched sources could not be fully assessed, so verification is incomplete." };
   }
   if (input.searchMode === "limited") {
     return {

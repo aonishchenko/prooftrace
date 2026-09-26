@@ -170,6 +170,7 @@ export abstract class SpecialistAgent extends Agent<Env> implements SpecialistRp
       }, required, sources);
       return { ok: true, value: {
         ...assessment,
+        incomplete: true,
         gaps: [...assessment.gaps, "Automated evidence assessment was unavailable; the brand statement remains unverified."],
       } };
     }

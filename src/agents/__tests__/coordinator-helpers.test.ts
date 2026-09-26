@@ -99,6 +99,11 @@ describe("isSelfDeclaredSource", () => {
     expect(isSelfDeclaredSource("lorealparis.com", "garnier.pt", "Garnier")).toBe(true);
   });
 
+  it("marks Weleda country sites as self-declared for a Weleda claim", () => {
+    expect(isSelfDeclaredSource("weleda.is", "weleda.pt", "Weleda")).toBe(true);
+    expect(isSelfDeclaredSource("weleda.com", "weleda.pt", "Weleda")).toBe(true);
+  });
+
   it("does not mark an unrelated brand's domain self-declared", () => {
     expect(isSelfDeclaredSource("lush.com", "garnier.pt", "Garnier")).toBe(false);
   });
@@ -128,6 +133,12 @@ describe("gateVerdict", () => {
 
   it("allows NOT_PUBLICLY_VERIFIABLE after a completed bounded search", () => {
     expect(gateVerdict(base)).toEqual({ verdict: "NOT_PUBLICLY_VERIFIABLE" });
+  });
+
+  it("withholds a negative verdict when fetched sources could not be assessed", () => {
+    const result = gateVerdict({ ...base, assessmentComplete: false });
+    expect(result.verdict).toBeUndefined();
+    expect(result.gap).toMatch(/could not be fully assessed/i);
   });
 
   it("withholds the verdict when search mode is limited", () => {
