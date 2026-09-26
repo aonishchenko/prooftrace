@@ -1,90 +1,74 @@
-# ProofTrace — Implementation Plan
+# ProofTrace — Two-hour MVP plan
 
-ProofTrace is a team of specialist AI agents that checks a sustainability claim against public evidence and shows its
-work: **claim → evidence required → sources checked → evidence found → gaps → verdict → next action.**
+ProofTrace checks a public sustainability claim against saved public evidence and shows its work:
+**claim → evidence required → sources checked → evidence found → gaps → verdict → next action.**
 
-Track: AI agents. Build time: 4 hours. Team: 2 (Person A = product/frontend/data, Person B = agents).
-**Technical design: [ARCHITECTURE.md](ARCHITECTURE.md).** This file covers what to build, in what order, and who does it.
+Track: AI agents. Team: 2 (Person A = page/data/deployment; Person B = agent pipeline). Time available: **2 hours**.
+The implementation contract and model choices are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
----
+## 1. Demo scope
 
-## 1. Principles
+- One Cloudflare Worker serves the React page, API and Agents SDK Durable Objects. Models use only Cloudflare-hosted
+  Workers AI IDs (`@cf/`); no external model provider or separate backend.
+- The three fixed cases run against source snapshots saved with URLs and retrieval times. A live investigation still
+  calls the agents and models; it does not need to fetch a third-party site during the pitch.
+- Code alone chooses `BACKED`, `VAGUE` or `NOT_PUBLICLY_VERIFIABLE`. Model text cannot override the verdict.
+- Each specialist keeps feedback lessons in its own Durable Object SQLite database. For the MVP, lessons come from
+  explicit reviewer feedback; automatic reflection, embeddings and source statistics are deferred.
+- A recorded run is visibly labelled **Recorded run**. It is a reliable backup, not a substitute for claiming that a
+  model call is live. The page offers **Run live** when enabled.
 
-1. **Everything on Cloudflare.** Models come from Workers AI (Cloudflare-hosted, paid from the account's credits).
-   There is no external model provider and no separate backend (no Railway).
-2. **Specialist agents.** Each agent has its own instructions, knowledge, model and **its own database**, and it learns
-   from past cases in its specialty.
-3. **Code decides verdicts.** Agents extract, reason and collect evidence; rules pick BACKED / VAGUE /
-   NOT PUBLICLY VERIFIABLE.
-4. **Demo starts pre-built.** The common database (D1) already holds the demo cases, stored source pages, recorded runs,
-   configuration and starting lessons. One click runs a case, and one click resets the demo.
+## 2. Frozen demo cases
 
-## 2. Agent team (details in ARCHITECTURE.md §2–3)
+Store the exact quotation and its source URL in `demo_cases`. Store the cited page text in `source_snapshots` with a
+retrieval timestamp. Preserve the surrounding passage and footnote; do not present a shortened paraphrase as a quote.
 
-| Agent | Model |
-|---|---|
-| Coordinator | GLM-4.7 Flash |
-| Claim Extractor | Kimi K2.6 |
-| Certification Specialist | DeepSeek V4 Flash |
-| Quantitative Specialist | DeepSeek V4 Pro |
-| Sourcing & Language Specialist | GLM-5.3 |
-| Verdict & Action Agent | rules in code + Kimi K2.6 |
-
----
-
-## 3. Demo cases (freeze at 0:30; quote exactly, with URL)
-
-| Case | Claim (exact public wording) | Specialist | Expected result |
+| Case | Exact claim to display | Primary source and evidence | Expected result |
 |---|---|---|---|
-| Garnier | Approved by Cruelty Free International under the Leaping Bunny programme (5 Mar 2021, all products) | Certification | 🟢 BACKED, confirmed on the certifier's register |
-| Lush | "Ethically sourced ingredients". *To do: exact quote + URL* | Sourcing & Language | 🟡 VAGUE. The phrase is vague, not the company. The rewrite uses Lush's real facts: buying direct from producers, cocoa butter certified fair-trade and organic |
-| YSL Libre refill | "Save 58% glass, 59% plastics and 42% paper" vs 3 non-refillable 50 ml bottles | Quantitative | 🟠 NOT PUBLICLY VERIFIABLE: baseline ✓, component weights ✗, refill assumption flagged, evidence request drafted |
+| YSL Libre | “Refilling the Eau de Parfum bottle helps to save 58%* glass, 59%* plastics and, 42%* paper.” | [YSL product page](https://www.yslbeauty.co.uk/fragrances/fragrances-for-her/libre/libre-eau-de-parfum/WW-50424YSL.html?dwvar_WW-50424YSL_size=50+ml). Its footnote compares one refillable 50 ml bottle plus one 100 ml refill with three classic non-refillable 50 ml bottles. | `NOT_PUBLICLY_VERIFIABLE`: comparison baseline is stated, but public component weights or calculation detail are still needed to reproduce the percentages. Flag the refill assumption and draft an evidence request. |
+| Garnier | “Garnier is approved by Cruelty Free International” | [Garnier UK page](https://www.garnier.co.uk/within-garnier); verify against the [certifier's Garnier listing](https://www.crueltyfreeinternational.org/approved-brands/listing/garnier/). | `BACKED` for **brand approval** if the saved certifier listing shows Garnier. Do not extend this verdict to every product unless independent evidence confirms that scope. |
+| Lush | “Endless heaps of ethically- sourced ingredients” | Heading on [Lush's bath-bomb page](https://www.lush.com/au/en/a/how-make-bath-bombs). The same page names fair trade cocoa butter and says Lush works directly with suppliers and visits them. Keep the source's unusual hyphenation in the exact quote. | `VAGUE` for the broad heading. The rewrite should identify the narrower, attributed examples and avoid treating the brand's own description as independent certification. |
 
-**Pitch order (2 minutes):**
-1. YSL live: the strongest moment.
-2. Garnier: a contrast that shows the agents don't fail every claim.
-3. Lush with the learning moment: mark the verdict "Wrong, because Lush names fair-trade cocoa butter", re-run it, and
-   the card shows "Applied lesson: …" with a sharper rewrite.
+The Lush learning moment is feedback on the **rewrite**, not a claim that the `VAGUE` verdict was wrong. Submit
+“Rewrite missed the named cocoa butter and supplier visits.” The sourcing agent saves that lesson. A targeted rerun
+uses the same snapshot and shows **Applied lesson: …** with a better rewrite; the verdict remains `VAGUE`. Never replay
+an unchanged recording and imply it applied new feedback.
 
-Small print on every result: *"Based on public sources retrieved 26 Sept 2026. The absence of public evidence does not
-mean a claim is false."*
+Small print on results: “Based on public sources retrieved [snapshot date]. The absence of public evidence does not
+mean a claim is false.” Use each snapshot's actual date rather than a hard-coded date.
 
----
+## 3. Two-hour build order
 
-## 4. Timeline and split
+| Elapsed time | Person A — page, data, deployment | Person B — agents and rules | Checkpoint |
+|---|---|---|---|
+| 0:00–0:15 | Scaffold Vite + Worker + Agents SDK; create D1; deploy a page and API response. | Define shared types and deterministic verdict rules; run one schema/tool smoke call on Kimi K2.6 and DeepSeek V4 Pro. | A deployed URL and working model calls. If a model fails, switch to the Cloudflare-hosted fallback immediately. |
+| 0:15–0:45 | Seed three cases and source snapshots; build launcher and trace/card UI with fixture data. | Implement the Coordinator's extraction stage and Quantitative Specialist. Finish **YSL** end to end first. | YSL live run displays the exact quote, comparison footnote, gap, verdict and evidence request on the deployed URL. |
+| 0:45–1:10 | Add Garnier and Lush source display and case cards. | Add Certification and Sourcing specialists. Reuse the same evidence and verdict contract. | All three cases complete live at least once. Freeze any working path. |
+| 1:10–1:30 | Add feedback control and lesson display; add a clearly labelled recorded-run fallback. | Save explicit feedback in Sourcing DO; targeted Lush rerun applies it. Record successful runs. | Reset → baseline Lush → feedback → targeted rerun works; recordings replay accurately. |
+| 1:30–1:45 | Polish only broken UI, source links and error messages; capture screenshots and backup video. | Fix schema, timeout or model failures; measure live latency. | Full flow passes on the deployed URL. |
+| 1:45–2:00 | Rehearse a two-minute pitch and prepare submission text. | Final deploy and verify one case plus recorded fallback. | Submission assets and backup are ready. |
 
-| Time | Person A — frontend / data / demo | Person B — agents |
-|---|---|---|
-| 0:00–0:30 | Scaffold (Vite + Worker + Agents SDK), `wrangler d1 create prooftrace`, create the AI Gateway, `0001_schema.sql`, deploy "hello" once to prove the deploy pipeline works. Write `mock.ts` | Write `types.ts`, `rules.ts`, the knowledge packs and `seed_lessons`. Capture the Lush quote. **Test one tool call on each chosen model**, especially DeepSeek V4 Pro. **0:30: both people sign off on the contract and the demo cases** |
-| 0:30–1:45 | Page: demo launcher (from `demo_cases`), live trace with one lane per agent, claim cards, "Request Missing Evidence" modal. Seed files `0002`–`0004`, including `source_snapshots` of the demo pages | `SpecialistAgent` base (model calls, own-database lessons, tools, reflection), Coordinator, Extractor, Certification Specialist. First end-to-end run on the Garnier case |
-| 1:45–2:30 | Switch from the mock to the real Coordinator. Add the "What this agent has learned" panel (reads each agent's lessons), the feedback buttons and `/api/demo/reset` | Quantitative + Sourcing specialists, Verdict & Action agent, feedback → lesson flow |
-| 2:30–3:10 | Polish the 3 demo flows and the learning moment on the **deployed** URL | Run each case live, `npm run record` → `0005_recorded_runs.sql`, add replay mode |
-| 3:10–3:40 | Rehearse the pitch. **Record the backup video** | Fix bugs and latency. Check cost per agent in AI Gateway |
-| 3:40–4:00 | Submission text and screenshots | Final deploy + reseed. Check reset → 3 cases → learning moment on the deployed URL |
+**Pitch:** Show the YSL trace first; switch to Garnier for the positive contrast; show Lush's vague heading and the
+feedback-driven rewrite. Use a measured live run only if it fits the pitch. Otherwise label recorded runs clearly and
+offer a separate live run afterward. A 120-second run cap is a failure bound, not a target demo duration.
 
-**Cut order if behind:**
-1. Arbitrary URL input.
-2. Reranker passage selection.
-3. Merge the Quantitative and Sourcing specialists into one agent that keeps both knowledge packs.
-4. Source-reliability stats.
-5. The page restyle.
+## 4. Cut order and acceptance
 
-Feedback lessons and demo reset are the last things to cut, because they make the learning demo work.
+Cut in this order if behind: arbitrary URL/text input, live page fetching, reranking, embeddings, automatic reflection,
+source statistics, model-generated coordinator narration, extra knowledge packs, restyling. The three fixed cases,
+source links, deterministic verdicts, a visible multi-agent trace and a deployable page stay in scope. If feedback is
+not working by 1:30, keep the baseline Lush result and omit the learning claim from the pitch.
 
-**Always keep:** the specialist agents visible in the trace, and claim → reasoning → evidence → gap → verdict → next
-action.
+The MVP is ready when the deployed URL can: (1) load the three cases; (2) show exact source-backed claims, evidence
+requirements and gaps; (3) produce the expected verdicts through code; (4) show agent identities and next actions;
+(5) label recorded runs; and (6) show the feedback lesson on a targeted Lush rerun if that feature is demonstrated.
 
----
-
-## 5. Decisions and open items
+## 5. Decisions
 
 | Item | Decision |
 |---|---|
-| Cloudflare account | `3550b1d16b78241182c4cb602b695110` (aonishchenko33), pinned in `wrangler.jsonc` |
-| Models | Workers AI (Cloudflare-hosted) only, one model per agent. Models can be swapped in `agent_config` without a redeploy |
-| Backend | Cloudflare Worker only. **No Railway** |
-| Storage | Each agent has its own Durable Object SQLite database (its experience). The common D1 database holds demo data, configuration, knowledge and history. Supabase only if D1 proves insufficient |
-| Web search | None. Curated trusted sources per specialist, with demo pages pre-stored in D1 |
-| DeepSeek V4 Pro tool calling | Verify at 0:30. Fallback: Nemotron 3 120B |
-| Lush exact quote + URL | Open. Person B, before 0:30 |
-| Evidence request | Draft only, never sent to any brand |
+| Cloudflare account | `3550b1d16b78241182c4cb602b695110` (aonishchenko33) in `wrangler.jsonc` |
+| Model budget | Quality and correct evidence handling take priority over price. Use only Cloudflare-hosted Workers AI models; verify paid access with real calls. |
+| Storage | Durable Object SQLite for per-agent lessons and coordinator state; D1 for demo cases, snapshots, configuration and recorded runs. |
+| Evidence request | Draft only; never sent to a brand. |
+| Demo reset | Reset specialist lessons to a known baseline and clear demo history; retain snapshots and recorded runs. |
