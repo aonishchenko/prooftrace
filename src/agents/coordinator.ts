@@ -224,10 +224,10 @@ function rpcFailureMessage(result: { ok: false; userMessage: string }): string {
 }
 
 // env.d.ts augments `Cloudflare.Env` (not the flat generated `Env`) with optional secrets such as
-// BRAVE_SEARCH_API_KEY. `Env` is structurally assignable to `Cloudflare.Env` (same required bindings, the extra
+// TAVILY_API_KEY and BRAVE_SEARCH_API_KEY. `Env` is structurally assignable to `Cloudflare.Env` (same required bindings, the extra
 // field is optional), so this narrowing cast is sound without `as unknown`.
 function hasSearchKeyConfigured(env: Env): boolean {
-  return Boolean((env as Cloudflare.Env).BRAVE_SEARCH_API_KEY);
+  return Boolean((env as Cloudflare.Env).TAVILY_API_KEY || (env as Cloudflare.Env).BRAVE_SEARCH_API_KEY);
 }
 
 export class Coordinator extends Agent<Env, Investigation> {
@@ -477,7 +477,7 @@ export class Coordinator extends Agent<Env, Investigation> {
     // Shared across claims investigated in parallel: the FIRST real search result confirms whether
     // search is actually available, regardless of which claim's scout instance performed it.
     const noteSearchAvailability = (available: boolean) => {
-      if (searchModeConfirmed) return;
+      if (searchModeConfirmed && !available) return;
       searchModeConfirmed = true;
       const confirmed: "full" | "limited" = available ? "full" : "limited";
       if (confirmed !== searchMode) {
@@ -748,7 +748,13 @@ export class Coordinator extends Agent<Env, Investigation> {
     // b. Discover candidate sources.
     const officialHits = await scout.officialCandidates(claim, claim.brand).catch(() => [] as SearchHit[]);
     const searchHits: SearchHit[] = [];
-    for (const query of plan.queries.slice(0, MAX_DISCOVERY_QUERIES)) {
+    // An official directory hit is only a starting URL. Search within its domain as well so a
+    // stale listing path cannot hide a current registry entry for the brand.
+    const registryQuery = officialHits.length > 0
+      ? `site:${issuerOf(officialHits[0].url)} ${claim.brand || uniqueWords([claim.text]).slice(0, 4).join(" ")}`
+      : null;
+    const queries = [registryQuery, ...plan.queries].filter((q): q is string => Boolean(q)).slice(0, MAX_DISCOVERY_QUERIES);
+    for (const query of queries) {
       if (Date.now() > deadline) {
         deadlineHit = true;
         break;

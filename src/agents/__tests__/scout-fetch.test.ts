@@ -37,6 +37,40 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("searchWeb: Tavily discovery", () => {
+  it("uses Tavily results as URL leads, never as fetched evidence", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ results: [
+      { url: "https://example.org/registry", title: "Registry", content: "Unverified snippet" },
+      { url: "http://localhost/private", title: "Unsafe", content: "Ignore" },
+    ] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { env } = makeEnv(async () => jsonResponse({}));
+    (env as Cloudflare.Env).TAVILY_API_KEY = "test-only-key";
+    const attempts: Array<{ status: string; resultCount?: number }> = [];
+    const scout = createEvidenceScout(env, { investigationId: "search-1", onAttempt: (a) => attempts.push(a) });
+
+    const result = await scout.searchWeb("site:example.org brand certification");
+
+    expect(result.available).toBe(true);
+    expect(result.hits).toEqual([{ url: "https://example.org/registry", title: "Registry", snippet: "Unverified snippet", source: "search" }]);
+    expect(attempts).toMatchObject([{ status: "ok", resultCount: 1 }]);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.tavily.com/search", expect.objectContaining({ method: "POST" }));
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toMatchObject({ search_depth: "basic", include_answer: false, include_raw_content: false });
+  });
+
+  it("reports unavailable when the configured search provider rejects the key", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ detail: "Unauthorized" }, 401)));
+    const { env } = makeEnv(async () => jsonResponse({}));
+    (env as Cloudflare.Env).TAVILY_API_KEY = "test-only-key";
+    const attempts: Array<{ status: string; reason?: string }> = [];
+    const scout = createEvidenceScout(env, { investigationId: "search-2", onAttempt: (a) => attempts.push(a) });
+
+    expect(await scout.searchWeb("example query")).toEqual({ available: false, hits: [] });
+    expect(attempts).toMatchObject([{ status: "error", reason: "Tavily search returned HTTP 401." }]);
+  });
+});
+
 describe("fetchPage SSRF: redirect to a private address", () => {
   it("blocks a redirect to a loopback address and never falls back to the browser", async () => {
     const { env, quickAction } = makeEnv(async () => {

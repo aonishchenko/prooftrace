@@ -49,9 +49,10 @@ avoids asking a language model to pretend it searched or to treat a search-resul
   Action](https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/) via the `BROWSER` binding.
   Use its [links action](https://developers.cloudflare.com/browser-run/quick-actions/links-endpoint/) when link
   discovery is needed. Keep the actual retrieval method in the record.
-- `search_web(query)`: call the [Brave Web Search API](https://api-dashboard.search.brave.com/app/documentation/web-search)
-  from the Worker with `BRAVE_SEARCH_API_KEY` stored as a Worker secret. Take URLs and metadata only. No Brave answer
-  or language model endpoint is used. A search hit is a lead, not evidence; `fetch_page` must open it before citation.
+- `search_web(query)`: call the [Tavily Search API](https://docs.tavily.com/documentation/api-reference/endpoint/search)
+  from the Worker with `TAVILY_API_KEY` stored as a Worker secret. Brave Search is an optional fallback. Take URLs and
+  metadata only, without answer generation or model inference. A search hit is a lead, not evidence; `fetch_page`
+  must open it before citation. For a matching registry, also search within that issuer's domain.
 - `lookup_official_source(name)`: a small D1 directory of certifiers and known issuer domains helps rank or directly
   open an official register. It supplements broad search; it does not replace it for arbitrary URLs.
 - `calculate(...)`: safe, bounded arithmetic in code for a quantitative claim. Never evaluate model-generated code.
@@ -202,7 +203,7 @@ as a collection failure. Evidence requests are drafts and are never sent.
 
 The [Browser Run binding](https://developers.cloudflare.com/browser-run/quick-actions/) supports Markdown and links
 Quick Actions without a Browser Run API token. It requires a compatibility date of at least `2026-03-24`; local
-development needs remote browser mode. The Brave Search key is separate and is kept in a Wrangler secret.
+development needs remote browser mode. The Tavily Search key is separate and is kept in a Wrangler secret.
 
 ```jsonc
 {
@@ -227,7 +228,7 @@ development needs remote browser mode. The Brave Search key is separate and is k
 }
 ```
 
-Set `BRAVE_SEARCH_API_KEY` using `wrangler secret put`, never in the repo. Use the Cloudflare Vite plugin's asset
+Set `TAVILY_API_KEY` using `wrangler secret put`, never in the repo. Use the Cloudflare Vite plugin's asset
 build path. Generate Worker types after changing bindings; do not enable `experimentalDecorators` for `@callable`.
 
 ## 6. Repository layout

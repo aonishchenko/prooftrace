@@ -119,6 +119,13 @@ async function main() {
     fail(`No scout step recorded a successful fetch of the input URL (expected a host match for "${host}").`);
     return;
   }
+  if (process.env.REQUIRE_FULL_SEARCH === "1") {
+    const searched = (investigation.steps ?? []).some((s) => s.agent === "scout" && s.kind === "search" && s.status === "ok");
+    if (investigation.searchMode !== "full" || !searched) {
+      fail(`Expected a successful live web search, got searchMode=${investigation.searchMode ?? "unset"}.`);
+      return;
+    }
+  }
 
   // 3a. No two consecutive steps are exact duplicates (same agent+label+detail+url) — regression check
   // for the live bug where every search step appeared twice in the trace.

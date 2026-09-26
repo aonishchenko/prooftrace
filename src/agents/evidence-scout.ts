@@ -730,57 +730,71 @@ export function createEvidenceScout(env: Env, opts: ScoutOptions): EvidenceScout
 
     async searchWeb(query) {
       const start = Date.now();
-      const key = (env as Cloudflare.Env).BRAVE_SEARCH_API_KEY;
-      if (!key) {
+      const tavilyKey = (env as Cloudflare.Env).TAVILY_API_KEY;
+      const braveKey = (env as Cloudflare.Env).BRAVE_SEARCH_API_KEY;
+      if (!tavilyKey && !braveKey) {
         await recordAttempt({ kind: "search", target: query, status: "unavailable", ms: Date.now() - start });
         return { available: false, hits: [] };
       }
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8`, {
-          headers: { Accept: "application/json", "X-Subscription-Token": key },
-          signal: controller.signal,
-        });
+      let failure = "Search request failed.";
+      let timedOut = false;
+      for (const provider of ["tavily", "brave"] as const) {
+        const key = provider === "tavily" ? tavilyKey : braveKey;
+        if (!key) continue;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
+        try {
+          const response = provider === "tavily"
+            ? await fetch("https://api.tavily.com/search", {
+              method: "POST",
+              headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+              body: JSON.stringify({ query, search_depth: "basic", topic: "general", max_results: 8, include_answer: false, include_raw_content: false }),
+              signal: controller.signal,
+            })
+            : await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8`, {
+              headers: { Accept: "application/json", "X-Subscription-Token": key },
+              signal: controller.signal,
+            });
+          if (!response.ok) {
+            failure = `${provider === "tavily" ? "Tavily" : "Brave"} search returned HTTP ${response.status}.`;
+            continue;
+          }
 
-        if (!response.ok) {
-          await recordAttempt({
-            kind: "search",
-            target: query,
-            status: "error",
-            reason: `Search API returned HTTP ${response.status}.`,
-            ms: Date.now() - start,
-          });
-          return { available: true, hits: [] };
+          const data = (await response.json()) as {
+            results?: Array<{ url: string; title?: string; content?: string }>;
+            web?: { results?: Array<{ url: string; title?: string; description?: string }> };
+          };
+          const results = provider === "tavily" ? data.results : data.web?.results;
+          if (!Array.isArray(results)) {
+            failure = `${provider === "tavily" ? "Tavily" : "Brave"} search returned an invalid response.`;
+            continue;
+          }
+          const hits: SearchHit[] = [];
+          for (const r of results) {
+            if (!r || typeof r.url !== "string") continue;
+            const check = validatePublicUrl(r.url);
+            if (!check.ok) continue;
+            const item = r as { content?: unknown; description?: unknown };
+            const snippet = provider === "tavily" ? item.content : item.description;
+            hits.push({
+              url: check.url.href,
+              title: typeof r.title === "string" ? r.title : "",
+              snippet: typeof snippet === "string" ? snippet : "",
+              source: "search",
+            });
+          }
+          await recordAttempt({ kind: "search", target: query, status: "ok", resultCount: hits.length, ms: Date.now() - start });
+          return { available: true, hits };
+        } catch {
+          timedOut = controller.signal.aborted;
+          failure = timedOut ? "Search timed out." : "Search request failed.";
+        } finally {
+          clearTimeout(timer);
         }
-
-        const data = (await response.json()) as {
-          web?: { results?: Array<{ url: string; title?: string; description?: string }> };
-        };
-        const results = data.web?.results ?? [];
-        const hits: SearchHit[] = [];
-        for (const r of results) {
-          const check = validatePublicUrl(r.url);
-          if (!check.ok) continue;
-          hits.push({ url: check.url.href, title: r.title ?? "", snippet: r.description ?? "", source: "search" });
-        }
-
-        await recordAttempt({ kind: "search", target: query, status: "ok", resultCount: hits.length, ms: Date.now() - start });
-        return { available: true, hits };
-      } catch (err) {
-        const timedOut = controller.signal.aborted;
-        await recordAttempt({
-          kind: "search",
-          target: query,
-          status: timedOut ? "timeout" : "error",
-          reason: timedOut ? "Search timed out." : "Search request failed.",
-          ms: Date.now() - start,
-        });
-        return { available: true, hits: [] };
-      } finally {
-        clearTimeout(timer);
       }
+      await recordAttempt({ kind: "search", target: query, status: timedOut ? "timeout" : "error", reason: failure, ms: Date.now() - start });
+      return { available: false, hits: [] };
     },
 
     async officialCandidates(claim, brand) {

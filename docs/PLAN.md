@@ -22,8 +22,8 @@ The core demo is a live URL investigation. Recorded runs are labelled backup mat
    Deterministic code chooses the verdict. The page streams the trace and shows linked evidence and next action.
 
 The MVP uses Cloudflare-hosted Workers AI models only. A web search API supplies **URLs**, not model inference;
-the Worker and Browser Run fetch those URLs and the specialists inspect the returned pages. Use the [Brave Web Search
-API](https://api-dashboard.search.brave.com/app/documentation/web-search) for broad discovery; keep its key in a
+the Worker and Browser Run fetch those URLs and the specialists inspect the returned pages. Use the [Tavily Search
+API](https://docs.tavily.com/documentation/api-reference/endpoint/search) for broad discovery; keep its key in a
 Worker secret. If search credentials are unavailable, link-following and known certifier lookups still work, but the
 UI must say **Limited search** and the URL-first MVP is not considered complete.
 
@@ -50,7 +50,7 @@ of public evidence does not mean a claim is false.”
 
 | Elapsed | Person A — page and deployment | Person B — collection and agents | Checkpoint |
 |---|---|---|---|
-| 0:00–0:15 | Scaffold and deploy the Worker + React URL form. Configure D1, AI, Browser Run binding and `BRAVE_SEARCH_API_KEY` secret. | Implement shared types, URL validation and one real `fetch_page` call. Smoke test Kimi and DeepSeek Pro on the account. | Deployed page can fetch a user URL; search API and model access are known. |
+| 0:00–0:15 | Scaffold and deploy the Worker + React URL form. Configure D1, AI, Browser Run binding and `TAVILY_API_KEY` secret. | Implement shared types, URL validation and one real `fetch_page` call. Smoke test Kimi and DeepSeek Pro on the account. | Deployed page can fetch a user URL; search API and model access are known. |
 | 0:15–0:40 | Build streaming trace with fetched URL, status, quote and timestamps. | Implement live page extraction and exact claim extraction. | Paste the YSL URL; the app retrieves its claim and footnote without a saved snapshot. |
 | 0:40–1:10 | Build evidence cards, attempted-source list and error/limited-search states. | Add Evidence Scout `search_web` + fetch of ranked results, then Quantitative Specialist and verdict rules. | YSL URL runs end to end with real searches and fetched evidence/gaps. |
 | 1:10–1:35 | Add the Garnier and Lush sample URL buttons and result views. | Add Certification and Sourcing Specialists, official-source prioritization and reusable source cache. | All three sample URLs finish on the deployed URL; each trace shows which pages were actually fetched. |
@@ -79,7 +79,7 @@ the reason rather than a fabricated verdict.
 |---|---|
 | Cloudflare account | `3550b1d16b78241182c4cb602b695110` (aonishchenko33) in `wrangler.jsonc` |
 | Models | Cloudflare-hosted Workers AI (`@cf/`) only; quality takes priority over price. See architecture model table. |
-| Web discovery | Brave Search returns candidate URLs. It is a search data service, not an AI model; use `BRAVE_SEARCH_API_KEY` as a Worker secret. |
+| Web discovery | Tavily Search returns candidate URLs. It is a search data service, not an AI model; use `TAVILY_API_KEY` as a Worker secret. Brave is an optional fallback. |
 | Page collection | Worker `fetch()` for simple pages; Cloudflare Browser Run Markdown/links for rendered or difficult pages. |
 | Storage | D1 stores investigation history, fetched-page cache, search/fetch attempts and recordings. Per-agent lessons are deferred. |
 | Evidence request | Draft only; never sent to a brand. |
