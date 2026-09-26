@@ -21,8 +21,9 @@ INSERT OR REPLACE INTO official_sources (id, name, domain, claim_types, keywords
  ('cosmos',     'COSMOS (organic/natural cosmetics standard)', 'cosmos-standard.org',         'certification', 'cosmos,organic,orgânico,biológico,ecocert', 'https://www.cosmos-standard.org/', 1, NULL),
  ('lorealplanet','L''Oréal Groupe commitments (brand owner, self-declared)', 'loreal.com',    'quantitative,sourcing,generic', 'reciclad,recycled,recicláv,recyclable,refill,recarga,plástico,plastic,carbon,carbono,water,água,natural,biodegrad', 'https://www.loreal.com/en/commitments-and-responsibilities/for-the-planet/', 0, 'Parent group of Garnier and YSL Beauty; not independent');
 
+-- YSL and Lush pages return HTTP 403 to the Evidence Scout, so they are not demo cases.
+DELETE FROM demo_cases WHERE id IN ('ysl-libre', 'lush');
 INSERT OR REPLACE INTO demo_cases (id, title, input_url, expected, sort) VALUES
  ('garnier-pt', 'Garnier Portugal homepage', 'https://www.garnier.pt/', 'Finds at least one sustainability claim on the site (follows links if homepage has none); every quote verified; run ends done or incomplete with reason', 1),
  ('garnier-uk', 'Garnier UK — cruelty free', 'https://www.garnier.co.uk/within-garnier', 'BACKED for brand approval via Cruelty Free International listing', 2),
- ('ysl-libre',  'YSL Libre refill', 'https://www.yslbeauty.co.uk/fragrances/fragrances-for-her/libre/libre-eau-de-parfum/WW-50424YSL.html?dwvar_WW-50424YSL_size=50+ml', 'NOT_PUBLICLY_VERIFIABLE: baseline found, component data missing', 3),
- ('lush',       'Lush — ethically sourced', 'https://www.lush.com/au/en/a/how-make-bath-bombs', 'VAGUE for the broad heading', 4);
+ ('weleda-pt',  'Weleda Portugal homepage', 'https://weleda.pt/', 'Finds natural-cosmetics / certification claims (NATRUE etc.) on the site or linked pages; every quote verified; run ends done or incomplete with reason', 3);
