@@ -79,6 +79,8 @@ export interface SourceExcerpt {
   title: string;
   retrievedAt: string;
   cached: boolean;
+  /** True when the source is published by the claim's own brand or its parent group (never independent). Set by the Coordinator. */
+  selfDeclared: boolean;
   /** Passages from the page text, each an exact substring of it. */
   passages: string[];
 }
