@@ -1,54 +1,136 @@
 # ProofTrace — Implementation Plan & Architecture
 
-ProofTrace is an agent that checks a sustainability claim against public evidence and shows its work:
+ProofTrace is a team of AI agents that checks a sustainability claim against public evidence and shows its work:
 **claim → evidence required → sources checked → evidence found → gaps → verdict → next action.**
 
-Track: AI agents. Build time: 4 hours. Team: 2 (Person A = product/frontend/demo, Person B = agent/evidence).
+Track: AI agents. Build time: 4 hours. Team: 2 (Person A = product/frontend/data, Person B = agents).
+Budget: **zero spend**. Only Cloudflare's own models and free allowances.
 
 ---
 
-## 1. Architecture
+## 1. Principles
 
-**Everything runs in one Cloudflare Worker. No separate backend and no Railway.**
+1. **Everything on Cloudflare, free tier only.** Models come from Workers AI, which runs open models on Cloudflare's own
+   hardware. No external LLM providers and no separate backend (no Railway).
+2. **Specialist agents, not one generalist.** Each agent has its own instructions, its own knowledge pack and its own
+   tools, and it learns from past cases in its specialty.
+3. **Code decides verdicts.** Agents extract, reason and collect evidence; deterministic rules pick
+   BACKED / VAGUE / NOT PUBLICLY VERIFIABLE. The result is repeatable and explainable to the jury.
+4. **One shared database (D1) as the system of record.** Agents keep live working state in their own storage, and
+   everything that must be shared, queried or learned from goes into D1.
 
-The Cloudflare Agents SDK gives us a stateful agent (a Durable Object) that keeps the investigation's state and
-syncs it live to the browser over WebSocket. The same Worker serves the React page. Nothing in the build needs
-Python, long-running jobs, a relational database or heavy PDF tooling, so none of them justify a second service.
-Railway only becomes relevant if we later add large PDF parsing or batch jobs longer than a few minutes.
+---
+
+## 2. Agent team
+
+Each agent is a separate class built on Cloudflare's Agents SDK. Each class runs as a Durable Object: a small, stateful
+server with its own built-in storage. Agents call each other directly with typed RPC calls (`getAgentByName`).
+
+| Agent | Instance | Speciality | Knowledge pack | Tools |
+|---|---|---|---|---|
+| **Coordinator** | one per investigation | Runs the investigation, sends each claim to the right specialist, and publishes the live trace to the page | Routing table (claim type → specialist) | calls other agents |
+| **Claim Extractor** | one, shared | Splits a page or text into claims, quoted exactly and typed (certification / quantitative / sourcing / generic) | Claim taxonomy, EU list of banned generic terms (Directive 2024/825) | `fetch_page` |
+| **Certification Specialist** | one, shared | Verifies "certified / approved / member of X" claims on **the certifier's own register** | Certifier directory: Leaping Bunny (Cruelty Free International), Vegan Society, Fairtrade, Soil Association COSMOS, B Corp. Each entry has the register URL, the lookup method, and what the certificate covers | `lookup_register`, `fetch_page` |
+| **Quantitative Claims Specialist** | one, shared | Checks "X% less / reduced / saves" claims: baseline, method, underlying data, assumptions | Rules for comparative claims (EU Directive 2024/825, UK competition regulator guidance): what a proven % claim needs | `fetch_page` |
+| **Sourcing & Language Specialist** | one, shared | Checks "ethically / responsibly sourced", "natural", "sustainable": whether the claim is specific, and which specific supported facts exist | Vague-term list, what substantiates sourcing claims (named standard, share of ingredients covered, audits) | `fetch_page` |
+| **Verdict & Action Agent** | one, shared | Applies the verdict rules (code), then writes the clearer claim and the evidence request | Rewrite patterns, evidence-request template | none (LLM + rules) |
+
+### How the agents learn
+
+The system is honest about what "learning" means here: agents **remember and reuse lessons**. The model itself is never
+retrained. There are three sources of lessons, all stored in D1 and tagged with the specialty:
+
+1. **Reviewer feedback.** Each verdict card has "Correct" and "Wrong, because…" buttons. A wrong verdict plus its reason
+   becomes a lesson for that specialist.
+2. **Self-reflection after each run.** The specialist writes one short lesson, such as "Leaping Bunny register search
+   works by brand name; the brand's own page is not independent evidence".
+3. **Source reliability.** Each source records how often it gave usable evidence. Specialists try the most reliable
+   sources first.
+
+Before each task, a specialist loads its top lessons for that claim type into its prompt. The page shows a
+**"What this agent has learned"** panel for each specialist. This is visible in the demo: run a case, mark a verdict
+wrong with a reason, re-run it, and the specialist applies the lesson.
+
+---
+
+## 3. Architecture
 
 ```mermaid
 flowchart LR
-  UI["React page<br/>(Worker static assets)"] -- "WebSocket<br/>useAgent()" --> AG
-  subgraph CF["Cloudflare Worker: prooftrace (account 3550b1d1…)"]
-    AG["ClaimInvestigator<br/>Agent (Durable Object)<br/>state = Investigation"]
-    RULES["Verdict rules<br/>(plain TypeScript)"]
-    FIX["Demo snapshots<br/>fixtures/*.json"]
-    AG --> RULES
-    AG -- replay mode --> FIX
+  UI["React page<br/>(served by the Worker)"] -- "WebSocket: live trace" --> CO
+  UI -- "HTTP: feedback, history" --> API["Worker API routes"]
+  subgraph CF["Cloudflare Worker: prooftrace — account 3550b1d1… (aonishchenko33)"]
+    CO["Coordinator<br/>(one per investigation)"]
+    EX["Claim Extractor"]
+    CS["Certification<br/>Specialist"]
+    QS["Quantitative<br/>Specialist"]
+    SS["Sourcing & Language<br/>Specialist"]
+    VA["Verdict & Action<br/>(rules in code)"]
+    CO --> EX
+    CO --> CS & QS & SS
+    CS & QS & SS --> VA
+    API --> D1
+    CO & EX & CS & QS & SS & VA --> D1[("D1 shared database")]
   end
-  AG -- "LLM calls" --> GW["Cloudflare AI Gateway<br/>(logs, cache, retries)"] --> LLM["Claude Sonnet 5<br/>+ web search tool"]
-  AG -- "fetch_page" --> WEB["Brand pages,<br/>certifier registers"]
+  CO & EX & CS & QS & SS & VA -- "via AI Gateway" --> WAI["Workers AI<br/>Qwen3-30B (free allowance)"]
+  CS & QS & SS -- "fetch_page / lookup_register" --> WEB["Certifier registers,<br/>brand pages"]
 ```
 
-### Components
+### Storage: who keeps what
 
-| Component | Tech | Owner |
+| Store | What it is | What goes in it |
 |---|---|---|
-| Page | React + Vite, `@cloudflare/vite-plugin`, served as Worker assets | A |
-| Live connection | `useAgent({ agent: "ClaimInvestigator", name: investigationId })` from `agents/react`; state updates stream automatically | A |
-| Agent | `ClaimInvestigator extends Agent<Env, Investigation>` from the `agents` package; `@callable() start(input)` | B |
-| LLM | Claude Sonnet 5 through AI Gateway (one `ANTHROPIC_API_KEY` secret). The gateway provides request logs for debugging and response caching for repeat runs | B |
-| Web search | Claude's built-in web search tool, so we don't build a search API | B |
-| Page fetch | Worker `fetch()` → HTML stripped to text; fall back to a snapshot if the site blocks bots | B |
-| Verdict | Deterministic rules in `src/agent/rules.ts`. The LLM extracts and classifies evidence; **code decides the verdict** | B |
-| Demo snapshots | Recorded live runs stored in `fixtures/{garnier,lush,ysl}.json` and replayed with their original timing | B records, A triggers |
+| **Durable Object storage** (built into each agent) | Each agent instance has its own small private SQLite database, stored by Cloudflare. It persists, but only that instance can read it | The Coordinator's live trace for one investigation, synced to the page as it changes. Specialists' in-progress working memory. **Nothing that needs to be shared** |
+| **D1** (Cloudflare's shared SQL database) | One shared database that every agent and API route reads and writes | Investigations, claims, evidence (with the exact quote and retrieval time), verdicts, reviewer feedback, lessons, source reliability, knowledge packs, cached page text, daily model-usage counter |
 
-### Why the agent is a Durable Object
+D1 free tier: 5 GB of storage and 5M rows read per day, far more than we need. If D1 turns out not to be enough, the
+next step is Supabase.
 
-- Each investigation is one agent instance. `setState()` pushes every new step to the page, so the investigation
-  shows as a live trace instead of a spinner. This is the "show the agent working" moment for the jury.
-- State persists: a page refresh mid-run reconnects to the same instance and continues from where it was.
-- It needs no database, queue or separate API server.
+### D1 tables
+
+```sql
+investigations (id, input_text, input_url, mode, status, error, created_at)
+claims         (id, investigation_id, text, source_url, type, specialist, verdict, checks_json, rewrite, next_action, evidence_request)
+evidence       (id, claim_id, url, title, issuer, independent, supports, scope_match, quote, retrieved_at)
+feedback       (id, claim_id, correct, reason, created_at)
+lessons        (id, specialty, claim_type, lesson, origin /* feedback|reflection */, uses, created_at)
+sources        (url_pattern, specialty, hits, misses, last_used_at)        -- source reliability
+knowledge      (specialty, key, content)                                   -- knowledge packs, seeded from /knowledge/*.md
+page_cache     (url, text, fetched_at)                                     -- saves fetches and model allowance
+usage          (day, neurons)                                              -- free-allowance guard
+```
+
+### Models (Workers AI, free)
+
+The free allowance is **10,000 neurons per day** on every plan. A neuron is Workers AI's unit of compute.
+
+| Use | Model | Why |
+|---|---|---|
+| All agents | `@cf/qwen/qwen3-30b-a3b-fp8` | Cheapest model with tool calling (4,625 / 30,475 neurons per million input / output tokens). 32k-token context |
+| Fallback if Qwen output is poor | `@cf/openai/gpt-oss-20b` (open-weights model hosted by Cloudflare) | Similar cost (18,182 / 27,273). Try it at 1:45 on the 3 demo cases |
+| Not used | Llama 3.3 70B | About 5× the cost per run. It would fit only ~7 live runs a day |
+
+**Estimate:** about 6 model calls per investigation, costing roughly 300–400 neurons. That is **about 25 live runs a
+day** on the free allowance. Replays cost nothing.
+
+Guards that keep spend at zero:
+- The `usage` table counts neurons per day. At 9,000, live mode switches off and the page offers replay mode with a
+  clear message.
+- AI Gateway (free) caches identical calls, so re-running a demo case is free.
+- Qwen's step-by-step "thinking" output is switched off for extraction and classification, because it uses output
+  tokens.
+- Every model response is checked against a schema (zod). On failure the call is retried once, then the agent returns a
+  clear error. Workers AI does not guarantee the JSON format.
+
+### No web search: curated sources instead
+
+Workers AI has no built-in web search, and paid search APIs are out. The specialists therefore use **their knowledge
+packs**, which list trusted source URLs, plus the claim's own page. They fetch these with the Worker's `fetch()` and
+store the text in `page_cache`. This is also a better story for the jury: evidence comes from known registers, not from
+whatever a search engine ranks first.
+
+Stretch goal: Cloudflare AI Search, which is free during its beta, could crawl the trusted domains into an index for
+each specialty.
 
 ### Cloudflare configuration
 
@@ -56,168 +138,175 @@ flowchart LR
 // wrangler.jsonc (key parts)
 {
   "name": "prooftrace",
-  "account_id": "3550b1d16b78241182c4cb602b695110",   // aonishchenko33 — pinned; login sees 3 accounts
+  "account_id": "3550b1d16b78241182c4cb602b695110",   // aonishchenko33 — pinned; this login sees 3 accounts
   "main": "src/server.ts",
   "compatibility_flags": ["nodejs_compat"],
   "assets": { "not_found_handling": "single-page-application" },
-  "durable_objects": { "bindings": [{ "name": "ClaimInvestigator", "class_name": "ClaimInvestigator" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClaimInvestigator"] }],
-  "vars": { "AI_GATEWAY_ID": "prooftrace" }
+  "ai": { "binding": "AI" },
+  "d1_databases": [{ "binding": "DB", "database_name": "prooftrace", "database_id": "<from wrangler d1 create>" }],
+  "durable_objects": { "bindings": [
+    { "name": "Coordinator", "class_name": "Coordinator" },
+    { "name": "ClaimExtractor", "class_name": "ClaimExtractor" },
+    { "name": "CertificationSpecialist", "class_name": "CertificationSpecialist" },
+    { "name": "QuantitativeSpecialist", "class_name": "QuantitativeSpecialist" },
+    { "name": "SourcingSpecialist", "class_name": "SourcingSpecialist" },
+    { "name": "VerdictAgent", "class_name": "VerdictAgent" }
+  ]},
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": [
+    "Coordinator", "ClaimExtractor", "CertificationSpecialist", "QuantitativeSpecialist", "SourcingSpecialist", "VerdictAgent"
+  ]}]
 }
 ```
 
-- Secret: `wrangler secret put ANTHROPIC_API_KEY`.
+- No secrets needed: the Workers AI binding bills to the account's free allowance.
 - Do **not** enable `experimentalDecorators` in tsconfig, because it breaks `@callable`.
-- Deploy target: `prooftrace.<subdomain>.workers.dev`. Add `X-Robots-Tag: noindex`, because the page names real brands.
+- Deploy target: `prooftrace.<subdomain>.workers.dev` with `X-Robots-Tag: noindex`, because the page names real brands.
 
-### Repository layout (split by owner so the two people don't create merge conflicts)
+### Keeping 6 agents buildable in 4 hours
+
+All specialists extend one base class, `SpecialistAgent`. It handles loading the knowledge pack and lessons, calling
+the model, validating the schema, retries, timeouts, writing evidence to D1 and writing the reflection. A new specialist
+is then about 40 lines of configuration: instructions, knowledge key, tools and output schema.
+
+### Repository layout (split by owner)
 
 ```
 src/
-  server.ts            # Worker entry: routeAgentRequest + assets            (B)
-  shared/types.ts      # THE CONTRACT — frozen at 0:30, both read it          (A+B)
-  agent/
-    investigator.ts    # ClaimInvestigator Agent class                        (B)
-    tools.ts           # fetch_page, lookup_register, draft_evidence_request  (B)
-    rules.ts           # deterministic verdict rules                          (B)
-    prompts.ts         # extraction / evidence-requirement prompts            (B)
-  app/
-    App.tsx, components/*, styles.css                                         (A)
-    mock.ts            # fake Investigation stream for building before 1:45   (A)
-fixtures/garnier.json, lush.json, ysl.json                                    (B)
+  server.ts                  # Worker entry: routeAgentRequest + /api routes + assets   (B routes agents, A routes api)
+  shared/types.ts            # THE CONTRACT — frozen at 0:30                              (A+B)
+  agents/
+    base.ts                  # SpecialistAgent base class                                (B)
+    coordinator.ts           # Coordinator                                               (B)
+    extractor.ts             # Claim Extractor                                           (B)
+    certification.ts, quantitative.ts, sourcing.ts                                       (B)
+    verdict.ts + rules.ts    # rules in code + rewrite / evidence request                 (B)
+    tools.ts                 # fetch_page, lookup_register (uses page_cache)              (B)
+  api/                       # feedback, history, lessons, usage                          (A)
+  app/                       # React page, components, mock.ts                            (A)
+migrations/0001_init.sql     # D1 schema                                                  (A)
+knowledge/*.md               # knowledge packs, seeded into D1                            (B writes, A seeds)
+fixtures/{garnier,lush,ysl}.json   # recorded live runs for replay                        (B)
 ```
 
 ---
 
-## 2. The contract (`src/shared/types.ts`) — freeze at 0:30
+## 4. The contract (`src/shared/types.ts`) — freeze at 0:30
 
-The page renders **only** from `Investigation` state. Person A builds against `mock.ts` until the backend is
-ready, so neither person waits on the other.
+The page renders the live trace from the Coordinator's state. Person A builds against `mock.ts` until the agents are
+ready.
 
 ```ts
 export type Verdict = "BACKED" | "VAGUE" | "NOT_PUBLICLY_VERIFIABLE";
+export type Specialty = "extractor" | "certification" | "quantitative" | "sourcing" | "verdict";
 
-export interface Investigation {
+export interface Investigation {            // Coordinator state, synced to the page
   id: string;
   input: { mode: "live" | "replay"; caseId?: "garnier" | "lush" | "ysl"; text?: string; url?: string };
   status: "idle" | "running" | "done" | "error";
-  error?: string;                 // user-readable message only, never raw provider output
-  steps: Step[];                  // the visible trace, appended as the agent works
+  error?: string;                          // user-readable only, never raw model/provider output
+  steps: Step[];
   claims: ClaimResult[];
-  retrievedAt?: string;           // ISO UTC, shown in the small print
+  retrievedAt?: string;                    // ISO UTC
 }
 
 export interface Step {
   id: string;
-  kind: "extract" | "require" | "search" | "fetch" | "match" | "gap" | "verdict" | "action" | "thought";
-  label: string;                  // "Searching Cruelty Free International register"
-  detail?: string;                // agent's reasoning sentence, shown in quotes
+  agent: Specialty | "coordinator";        // which agent is speaking; the page shows one lane or colour per agent
+  kind: "extract" | "route" | "require" | "lesson" | "fetch" | "match" | "gap" | "verdict" | "action" | "thought";
+  label: string;                           // "Checking Cruelty Free International register"
+  detail?: string;                         // the agent's reasoning sentence
   status: "running" | "ok" | "fail" | "info";
   sourceUrl?: string;
   claimId?: string;
-  at: number;                     // ms since run start (replay uses this for timing)
+  at: number;                              // ms since run start; replay uses it for timing
 }
 
 export interface Evidence {
-  url: string;
-  title: string;
-  issuer: string;                 // "Cruelty Free International", "YSL Beauty"
-  independent: boolean;           // third party, not the brand
-  supports: "full" | "partial" | "none";
-  scopeMatch: boolean;            // covers this product/brand, not a different one
-  quote: string;                  // exact supporting text
-  retrievedAt: string;            // ISO UTC
+  url: string; title: string; issuer: string;
+  independent: boolean; supports: "full" | "partial" | "none"; scopeMatch: boolean;
+  quote: string; retrievedAt: string;
 }
 
 export interface ClaimResult {
   claimId: string;
-  text: string;                   // exact wording as written by the brand
+  text: string;                            // exact brand wording
   sourceUrl: string;
-  type: "certification" | "quantitative" | "generic" | "sourcing";
-  required: string[];             // "Packaging component weights", "Calculation method"
+  type: "certification" | "quantitative" | "sourcing" | "generic";
+  specialist: Specialty;
+  required: string[];
   evidence: Evidence[];
   gaps: string[];
-  checks: { name: string; pass: boolean }[];   // drives "4/5 checks passed", no invented confidence %
+  checks: { name: string; pass: boolean }[];
+  lessonsApplied: string[];                // shown on the card: "Applied lesson: …"
   verdict: Verdict;
-  rewrite?: string;               // clearer claim the evidence supports
+  rewrite?: string;
   nextAction?: string;
-  evidenceRequest?: string;       // draft email text; copied by user, never sent
+  evidenceRequest?: string;                // draft only, never sent
 }
 ```
 
 ---
 
-## 3. Agent workflow (Person B)
-
-For each input: extract the claims first, then run steps 2–6 for each claim.
-
-1. **Extract**: the LLM returns claims with their exact wording and a `type`. For example, a claim with several figures (58% / 59% / 42%) becomes one claim per figure.
-2. **Require**: the LLM states what evidence would prove the claim *before any search*. This becomes a `require` step
-   with the reasoning shown, and it is the part that shows intelligence.
-3. **Collect**: `lookup_register` for certification claims (checks the certifier's own register first), and the web search tool and
-   `fetch_page` for everything else. Allowlist of trusted sources: crueltyfreeinternational.org, vegansociety.com, the brand's official
-   pages, fairtrade.org.uk, soilassociation.org.
-4. **Match**: the LLM fills one `Evidence` record per source (issuer, independent, supports, scopeMatch, quote).
-5. **Verdict**: `rules.ts` computes the verdict (below). The LLM never picks the verdict.
-6. **Next action**: for a gap, the LLM drafts the evidence request. For a vague claim, it writes a specific rewrite that the
-   evidence found supports.
-
-### Verdict rules (`rules.ts`)
+## 5. Verdict rules (`rules.ts`)
 
 | Verdict | Rule |
 |---|---|
-| **VAGUE** | `type = generic` (the claim relies on words like *ethical, sustainable, responsible, eco, green, natural, clean, conscious*) and states no measurable scope. Applies even when related policies exist. |
-| **BACKED** | At least one evidence record has `independent && supports = full && scopeMatch`, *and* it is current (live register retrieved today, or dated within 24 months). |
+| **VAGUE** | `type = generic` or `sourcing`, and the claim states no measurable scope, e.g. it relies on *ethical, sustainable, responsible, eco, green, natural, clean, conscious*. Applies even when related policies exist. |
+| **BACKED** | At least one evidence record has `independent && supports = full && scopeMatch`, and it is current: taken from a live register today, or dated within 24 months. |
 | **NOT_PUBLICLY_VERIFIABLE** | A specific claim where the evidence is self-declared only, or where at least one `required` item is missing. |
 
-The checks list shown in each card: *claim is specific*, *evidence found*, *independent source*, *scope matches*, *evidence is current*.
+The checks list shown on each card: *claim is specific*, *evidence found*, *independent source*, *scope matches*,
+*evidence is current*.
 
-### Every run must finish with an answer
-
-- Page fetch: 10 s timeout, 1 retry. LLM call: 30 s timeout, 1 retry. Whole run: 120 s cap.
-- On any failure the run stops with a partial result and a clear `error` message, e.g. "Couldn't reach lush.com.
-  Showing the evidence found so far." The run never spins indefinitely, and provider error text never reaches the UI.
+**Every run must finish with an answer:** page fetch has a 10 s timeout and 1 retry; each model call has a 30 s timeout
+and 1 retry; a whole run is capped at 120 s. On failure the run returns a partial result with a clear message. It never
+spins indefinitely.
 
 ---
 
-## 4. Demo cases (freeze at 0:30; quote exactly, with URL)
+## 6. Demo cases (freeze at 0:30; quote exactly, with URL)
 
-| Case | Claim (exact public wording) | Expected result | The moment |
+| Case | Claim (exact public wording) | Specialist | Expected result |
 |---|---|---|---|
-| Garnier | "Approved by Cruelty Free International under the Leaping Bunny programme" (approved 5 Mar 2021, all products) | 🟢 BACKED | The agent confirms it on **the certifier's own register**, not the brand's page |
-| Lush | "Ethically sourced ingredients". *To do: capture the exact quote and URL where Lush uses it* | 🟡 VAGUE | The agent finds Lush's real Ethical Buying facts (buys direct from producers, cocoa butter certified fair-trade and organic) and rewrites the claim around them. The verdict targets **the phrase, not the company** |
-| YSL Libre refill | "Save 58% glass, 59% plastics and 42% paper" vs 3 non-refillable 50 ml bottles | 🟠 NOT PUBLICLY VERIFIABLE | Baseline found ✓, component weights ✗, the refill assumption is flagged, and the evidence request is drafted |
+| Garnier | Approved by Cruelty Free International under the Leaping Bunny programme (5 Mar 2021, all products) | Certification | 🟢 BACKED, confirmed on the certifier's register |
+| Lush | "Ethically sourced ingredients". *To do: exact quote + URL* | Sourcing & Language | 🟡 VAGUE. The phrase is vague, not the company. The rewrite uses Lush's real facts: buying direct from producers, cocoa butter certified fair-trade and organic |
+| YSL Libre refill | "Save 58% glass, 59% plastics and 42% paper" vs 3 non-refillable 50 ml bottles | Quantitative | 🟠 NOT PUBLICLY VERIFIABLE: baseline ✓, component weights ✗, refill assumption flagged, evidence request drafted |
 
-Small print shown on every result:
-*"Based on public sources retrieved 26 Sept 2026. The absence of public evidence does not mean a claim is false."*
+**Learning moment (demo step 4):** run the Lush case, mark its verdict "Wrong, because Lush names fair-trade cocoa
+butter", and re-run it. The card then shows "Applied lesson: …" and a sharper rewrite.
+
+Small print on every result: *"Based on public sources retrieved 26 Sept 2026. The absence of public evidence does not
+mean a claim is false."*
 
 ---
 
-## 5. Timeline and split
+## 7. Timeline and split
 
-| Time | Person A — product / frontend / demo | Person B — agent / evidence |
+| Time | Person A — frontend / data / demo | Person B — agents |
 |---|---|---|
-| 0:00–0:30 | Scaffold the project (Vite + Worker + Agents SDK) and deploy "hello" to the account once, to prove the deploy pipeline works. Write `mock.ts` | Write `types.ts` (the contract), the verdict rules and the prompts. Capture the exact Lush quote and URL. **0:30: both people sign off on `types.ts` and the 3 demo cases** |
-| 0:30–1:45 | Single page: input (text or URL, plus 3 demo buttons), live trace, claim cards, verdict badges, "Request Missing Evidence" modal. Build against the mock | `ClaimInvestigator`: extract → require → collect → match → rules → next action. Test with the text input |
-| 1:45–2:30 | Switch from the mock to `useAgent`. Style the cards. Add the small print | Certifier register lookup, gap detection, evidence request drafting. Timeouts and error handling |
-| 2:30–3:10 | Polish the 3 demo flows end to end on the **deployed** URL | Run each case live, fix its output, record `fixtures/*.json`, add replay mode |
-| 3:10–3:40 | Rehearse the 2-minute pitch. **Record the backup video** | Fix bugs and latency, format sources |
-| 3:40–4:00 | Submission text and screenshots | Final deploy. Check that all 3 replays and one live run work on the deployed URL |
+| 0:00–0:30 | Scaffold (Vite + Worker + Agents SDK), `wrangler d1 create`, `0001_init.sql`, deploy "hello" once to prove the deploy pipeline works. Write `mock.ts` | Write `types.ts`, `rules.ts` and the 4 knowledge packs. Capture the Lush quote. **0:30: both people sign off on the contract and the demo cases** |
+| 0:30–1:45 | Page: input + 3 demo buttons, live trace with one lane per agent, claim cards, "Request Missing Evidence" modal. Feedback + lessons API, knowledge seeding | `SpecialistAgent` base, Coordinator, Extractor, Certification Specialist. First end-to-end run on the Garnier case |
+| 1:45–2:30 | Switch from the mock to the real Coordinator. Add the "What this agent has learned" panel and the usage counter | Quantitative + Sourcing specialists, Verdict & Action agent, reflection lessons. Compare Qwen with gpt-oss-20b on the 3 cases and keep the better one |
+| 2:30–3:10 | Polish the 3 demo flows and the learning moment on the **deployed** URL | Run each case live, record `fixtures/*.json`, add replay mode and the neuron guard |
+| 3:10–3:40 | Rehearse the pitch. **Record the backup video** | Fix bugs, latency, source formatting |
+| 3:40–4:00 | Submission text and screenshots | Final deploy. Check the 3 replays + 1 live run + the learning moment on the deployed URL |
 
-**Cut order if behind:** arbitrary URL input → live web search (keep register lookup + fixtures) → several claims per
-input → the page restyle. PDF upload is out of scope from the start.
+**Cut order if behind:** arbitrary URL input → Quantitative and Sourcing specialists merged into one "Claims
+Specialist" (keeping separate knowledge packs) → source-reliability scoring → the page restyle. Reviewer-feedback lessons
+are the last thing to cut; they are the learning demo.
 
-**Always keep:** claim → reasoning → evidence → gap → verdict → next action, visible live.
+**Always keep:** specialist agents visible in the trace, claim → reasoning → evidence → gap → verdict → next action.
 
 ---
 
-## 6. Decisions and open items
+## 8. Decisions and open items
 
-| Item | Status |
+| Item | Decision |
 |---|---|
 | Cloudflare account | `3550b1d16b78241182c4cb602b695110` (aonishchenko33), pinned in `wrangler.jsonc` |
-| Separate backend / Railway | **Not needed** |
-| Database | **None for the build.** Each agent keeps its own state in the Durable Object's built-in SQLite; fixtures are bundled JSON. If we add shared data (investigation history, a list of past checks) → **Cloudflare D1**. Only if D1 is not enough → Supabase |
-| LLM | Claude Sonnet 5 through AI Gateway. **Needs an Anthropic API key.** Fallback: Workers AI model with no web search, limited to the allowlist fetch + fixtures |
+| Models | Workers AI only: Qwen3-30B, with gpt-oss-20b as fallback. No external providers. Zero spend, guarded by the daily usage counter |
+| Backend | Cloudflare Worker only. **No Railway** |
+| Shared database | **D1**. Supabase only if D1 proves insufficient |
+| Web search | None. Curated trusted sources for each specialist |
 | Lush exact quote + URL | Open. Person B, before 0:30 |
 | Evidence request | Draft only, never sent to any brand |
