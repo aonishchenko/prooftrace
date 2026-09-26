@@ -10,7 +10,7 @@
     "test": "vitest run",
     "db:migrate": "wrangler d1 migrations apply prooftrace --remote",
     "db:seed": "wrangler d1 execute prooftrace --remote --file seed/0001_seed.sql",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node --env-file-if-exists=.env scripts/e2e.mjs"
   },
   "dependencies": {
     "agents": "^0.24.0",
