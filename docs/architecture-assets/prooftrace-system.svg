@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1120" viewBox="0 0 2048 1120" role="img" aria-labelledby="title desc">
+  <title id="title">ProofTrace — current system architecture</title>
+  <desc id="desc">A user enters a public URL in the React page. A Cloudflare Worker routes the investigation to a Coordinator Durable Object. Its extractor uses Kimi on Workers AI, its Evidence Scout searches Tavily and fetches public pages with Worker fetch or Browser Run, and Certification, Quantitative and Sourcing specialist Durable Objects plan and assess evidence with Workers AI. D1 stores pages and the audit trail. Code verdict rules return the live trace and final report to the browser.</desc>
+  <defs>
+    <filter id="shadow" x="-15%" y="-20%" width="130%" height="150%"><feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#132238" flood-opacity=".09"/></filter>
+    <linearGradient id="client" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eef8ff"/><stop offset="1" stop-color="#fbfdff"/></linearGradient>
+    <linearGradient id="platform" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff7ed"/><stop offset="1" stop-color="#fffdf9"/></linearGradient>
+    <linearGradient id="internet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#effcf6"/><stop offset="1" stop-color="#fbfffd"/></linearGradient>
+    <marker id="blueArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M1 1L9 5 1 9Z" fill="#2563eb"/></marker>
+    <marker id="violetArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M1 1L9 5 1 9Z" fill="#7c3aed"/></marker>
+    <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M1 1L9 5 1 9Z" fill="#15803d"/></marker>
+    <marker id="amberArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M1 1L9 5 1 9Z" fill="#b45309"/></marker>
+    <g id="reactIcon" fill="none" stroke="#149eca" stroke-width="2.1"><ellipse rx="16" ry="6.4"/><ellipse rx="16" ry="6.4" transform="rotate(60)"/><ellipse rx="16" ry="6.4" transform="rotate(120)"/><circle r="3.3" fill="#149eca" stroke="none"/></g>
+    <g id="cloudflareIcon" fill="#f38020"><path d="M6 27h34c5.1 0 8.1-2.4 8.1-6.4 0-3.3-2.5-5.7-5.9-5.7-.7 0-1.5.1-2.1.3C37.9 8.4 32 4 24.7 4 17.5 4 11.4 8.4 9.3 15.2a8.9 8.9 0 0 0-3.3-.6C1.7 14.6-1 17.6-1 21.3-1 24.9 1.8 27 6 27Z"/><path d="M17 20h29c1.4 0 2.6.8 2.9 2.1.6 2.5-1.1 4.9-4.8 4.9H14.6Z" fill="#faae40"/></g>
+    <g id="tavilyIcon"><path d="M0-15 3.8-3.8 15 0 3.8 3.8 0 15-3.8 3.8-15 0-3.8-3.8Z" fill="#0f9f6e"/><circle cx="0" cy="0" r="3" fill="#fff"/></g>
+    <g id="databaseIcon" fill="none" stroke="#f38020" stroke-width="2.3"><ellipse cx="0" cy="-9" rx="15" ry="6"/><path d="M-15-9v21c0 3.4 6.7 6 15 6s15-2.6 15-6V-9M-15 1c0 3.3 6.7 6 15 6s15-2.7 15-6"/></g>
+    <g id="aiIcon" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M0-17 4-4 17 0 4 4 0 17-4 4-17 0-4-4Z"/><path d="M15-16v7m-3.5-3.5h7M-15 12v6m-3-3h6"/></g>
+    <g id="browserIcon" fill="none" stroke="#2563eb" stroke-width="2"><rect x="-15" y="-12" width="30" height="24" rx="4"/><path d="M-15-5h30M-10-8h1m4 0h1"/></g>
+    <g id="doIcon" fill="none" stroke="#7c3aed" stroke-width="2.1"><rect x="-13" y="-13" width="20" height="20" rx="4"/><rect x="-7" y="-7" width="20" height="20" rx="4"/></g>
+  </defs>
+  <style>
+    .bg{fill:#f8fafc}.title{font:800 47px Inter,ui-sans-serif,system-ui,sans-serif;fill:#0f172a}.subtitle{font:500 20px Inter,ui-sans-serif,system-ui,sans-serif;fill:#475569}
+    .group{stroke-width:1.6;rx:23}.client{fill:url(#client);stroke:#9dd5f4}.platform{fill:url(#platform);stroke:#fdba74}.internet{fill:url(#internet);stroke:#86efac}
+    .card{fill:#fff;stroke:#cbd5e1;stroke-width:1.3;rx:15;filter:url(#shadow)}.subcard{fill:#fff;stroke:#d6deea;stroke-width:1.2;rx:12}.blueCard{fill:#eff6ff;stroke:#93c5fd;stroke-width:1.4;rx:13}.purpleCard{fill:#f5f3ff;stroke:#c4b5fd;stroke-width:1.4;rx:13}.greenCard{fill:#f0fdf4;stroke:#86efac;stroke-width:1.4;rx:13}.amberCard{fill:#fff7ed;stroke:#fdba74;stroke-width:1.4;rx:13}
+    .section{font:800 22px Inter,ui-sans-serif,system-ui,sans-serif;fill:#172033;letter-spacing:.03em}.sectionSub{font:600 14px Inter,ui-sans-serif,system-ui,sans-serif;fill:#64748b}.cardTitle{font:750 21px Inter,ui-sans-serif,system-ui,sans-serif;fill:#172033}.label{font:750 18px Inter,ui-sans-serif,system-ui,sans-serif;fill:#172033}.body{font:500 16px Inter,ui-sans-serif,system-ui,sans-serif;fill:#42526b}.tiny{font:550 14px Inter,ui-sans-serif,system-ui,sans-serif;fill:#64748b}.mono{font:650 15px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#334155}.eyebrow{font:800 13px Inter,ui-sans-serif,system-ui,sans-serif;fill:#2563eb;letter-spacing:.11em}.flowLabel{font:700 13px Inter,ui-sans-serif,system-ui,sans-serif;fill:#64748b}
+    .flowBlue{fill:none;stroke:#2563eb;stroke-width:2.6;marker-end:url(#blueArrow)}.flowViolet{fill:none;stroke:#7c3aed;stroke-width:2.6;marker-end:url(#violetArrow)}.flowGreen{fill:none;stroke:#15803d;stroke-width:2.6;marker-end:url(#greenArrow)}.flowAmber{fill:none;stroke:#b45309;stroke-width:2.6;marker-end:url(#amberArrow)}.flowDotted{fill:none;stroke:#94a3b8;stroke-width:2;stroke-dasharray:5 5;marker-end:url(#blueArrow)}
+    .chip{fill:#e2e8f0;rx:8}.chipText{font:750 13px Inter,ui-sans-serif,system-ui,sans-serif;fill:#475569}.number{font:800 14px Inter,ui-sans-serif,system-ui,sans-serif;fill:#fff}
+  </style>
+  <rect class="bg" width="2048" height="1120"/>
+  <text x="48" y="70" class="title">ProofTrace — System Architecture</text>
+  <text x="50" y="108" class="subtitle">From one public URL to a live evidence trail, code verdict, and report</text>
+  <rect x="48" y="137" width="271" height="888" class="group client"/>
+  <rect x="348" y="137" width="1241" height="888" class="group platform"/>
+  <rect x="1619" y="137" width="382" height="888" class="group internet"/>
+
+  <!-- Explicit data-flow connectors stay in the gutters between cards. -->
+  <path class="flowBlue" d="M294 348H332V284H377"/>
+  <path class="flowBlue" d="M555 334V380"/>
+  <path class="flowViolet" d="M745 425V359H1365V380"/>
+  <path class="flowViolet" d="M747 626H774"/>
+  <path class="flowViolet" d="M775 664H749"/>
+  <path class="flowGreen" d="M1147 562H1175"/>
+  <path class="flowGreen" d="M1563 505H1600V349H1645"/>
+  <path class="flowGreen" d="M1563 555H1645"/>
+  <path class="flowGreen" d="M1645 602H1565"/>
+  <path class="flowGreen" d="M1563 676H1600V802H1645"/>
+  <path class="flowAmber" d="M1370 759V798"/>
+  <path class="flowViolet" d="M960 876V901"/>
+  <path class="flowDotted" d="M745 556H758V908H775"/>
+  <path class="flowBlue" d="M378 841H331V726H294"/>
+
+  <!-- Browser client -->
+  <use href="#reactIcon" transform="translate(83 183)"/>
+  <text x="112" y="190" class="section">BROWSER CLIENT</text>
+  <text x="73" y="216" class="sectionSub">React • one page</text>
+  <rect x="72" y="252" width="222" height="209" class="card"/>
+  <rect x="90" y="269" width="76" height="24" rx="7" fill="#dbeafe"/>
+  <text x="128" y="286" text-anchor="middle" class="eyebrow">INPUT</text>
+  <text x="90" y="331" class="cardTitle">User URL</text>
+  <text x="90" y="360" class="body">Paste any public page</text>
+  <rect x="90" y="380" width="185" height="36" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="102" y="403" class="mono" style="font-size:13px">https://brand.com</text>
+  <text x="90" y="441" class="tiny">Start a live investigation</text>
+  <rect x="72" y="528" width="222" height="324" class="card"/>
+  <rect x="90" y="546" width="98" height="24" rx="7" fill="#dbeafe"/>
+  <text x="139" y="563" text-anchor="middle" class="eyebrow">OUTPUT</text>
+  <text x="90" y="604" class="cardTitle">Live trace</text>
+  <text x="90" y="632" class="body">Agent steps and URLs</text>
+  <path d="M93 658h170M93 682h146M93 706h161" stroke="#cbd5e1" stroke-width="7" stroke-linecap="round"/>
+  <text x="90" y="755" class="cardTitle">Final report</text>
+  <text x="90" y="783" class="body">Evidence • gaps • verdict</text>
+  <text x="90" y="808" class="body">Next action</text>
+  <rect x="72" y="882" width="222" height="103" class="blueCard"/>
+  <text x="90" y="910" class="label">Live updates</text>
+  <text x="90" y="935" class="tiny">Agents SDK WebSocket</text>
+  <text x="90" y="956" class="tiny">REST API for history / e2e</text>
+
+  <!-- Cloudflare runtime -->
+  <use href="#cloudflareIcon" transform="translate(381 166) scale(.83)"/>
+  <text x="427" y="189" class="section">CLOUDFLARE RUNTIME</text>
+  <text x="376" y="218" class="sectionSub">Workers • Durable Objects • Browser Run • Workers AI • D1</text>
+  <rect x="378" y="240" width="1184" height="94" class="card"/>
+  <rect x="398" y="259" width="48" height="48" rx="12" fill="#fff0dd"/>
+  <text x="422" y="291" text-anchor="middle" style="font:800 25px Inter,system-ui;fill:#f38020">W</text>
+  <text x="460" y="274" class="cardTitle">Cloudflare Worker</text>
+  <text x="460" y="302" class="body">Serves React assets, routes /api and /agents, starts each investigation</text>
+  <rect x="1348" y="265" width="190" height="37" rx="9" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="1443" y="289" text-anchor="middle" class="mono">src/server.ts</text>
+
+  <rect x="378" y="385" width="369" height="591" class="card"/>
+  <use href="#doIcon" transform="translate(408 418)"/>
+  <text x="432" y="424" class="cardTitle">Coordinator Agent DO</text>
+  <text x="399" y="455" class="tiny">One Durable Object per investigation</text>
+  <rect x="399" y="487" width="327" height="117" class="purpleCard"/>
+  <text x="416" y="517" class="label">Claim Extractor stage</text>
+  <text x="416" y="543" class="body">Kimi K2.6 extracts exact page</text>
+  <text x="416" y="565" class="body">quotes and classifies claims</text>
+  <text x="416" y="588" class="tiny">Workers AI • exact-substring check</text>
+  <rect x="399" y="624" width="327" height="112" class="subcard"/>
+  <text x="416" y="655" class="label">Orchestration</text>
+  <text x="416" y="682" class="body">Select claims; call Scout and</text>
+  <text x="416" y="704" class="body">matching specialist agents</text>
+  <rect x="399" y="756" width="327" height="174" class="blueCard"/>
+  <text x="416" y="787" class="label">Verdict rules in code</text>
+  <text x="416" y="814" class="body">Exact quotes • independence</text>
+  <text x="416" y="837" class="body">Scope • required evidence</text>
+  <text x="416" y="868" class="mono">BACKED / VAGUE /</text>
+  <text x="416" y="891" class="mono">NOT PUBLICLY VERIFIABLE</text>
+  <text x="416" y="916" class="tiny">Kimi drafts next action from result</text>
+
+  <rect x="775" y="385" width="372" height="491" class="card"/>
+  <use href="#doIcon" transform="translate(805 418)"/>
+  <text x="829" y="424" class="cardTitle">Specialist Agent DOs</text>
+  <text x="797" y="455" class="tiny">Requirements • targeted queries • assessment</text>
+  <rect x="797" y="482" width="328" height="105" class="purpleCard"/>
+  <text x="814" y="513" class="label">Certification</text>
+  <text x="814" y="539" class="body">Issuer register, approval</text>
+  <text x="814" y="562" class="tiny">Cloudflare-hosted DeepSeek Pro</text>
+  <rect x="797" y="604" width="328" height="105" class="purpleCard"/>
+  <text x="814" y="635" class="label">Quantitative</text>
+  <text x="814" y="661" class="body">Baseline, method, figures</text>
+  <text x="814" y="684" class="tiny">Cloudflare-hosted DeepSeek Pro</text>
+  <rect x="797" y="726" width="328" height="105" class="purpleCard"/>
+  <text x="814" y="757" class="label">Sourcing</text>
+  <text x="814" y="783" class="body">Materials, scope, audits</text>
+  <text x="814" y="806" class="tiny">Cloudflare-hosted DeepSeek Flash</text>
+
+  <rect x="1175" y="385" width="388" height="374" class="card"/>
+  <circle cx="1206" cy="416" r="17" fill="#dcfce7"/>
+  <path d="M1198 416h16m-8-8v16" stroke="#15803d" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="1232" y="424" class="cardTitle">Evidence Scout stage</text>
+  <text x="1197" y="455" class="tiny">Tool executor inside Coordinator</text>
+  <rect x="1197" y="482" width="344" height="117" class="greenCard"/>
+  <text x="1214" y="512" class="label">Discover candidate URLs</text>
+  <text x="1214" y="539" class="body">Tavily search, page links,</text>
+  <text x="1214" y="562" class="body">known official-source directory</text>
+  <text x="1214" y="584" class="tiny">Search snippets are never evidence</text>
+  <rect x="1197" y="619" width="344" height="111" class="greenCard"/>
+  <use href="#browserIcon" transform="translate(1228 650)"/>
+  <text x="1252" y="657" class="label">Fetch and verify pages</text>
+  <text x="1214" y="686" class="body">Worker fetch → Browser Run</text>
+  <text x="1214" y="710" class="tiny">Record blocks, URLs, text and time</text>
+
+  <rect x="775" y="902" width="372" height="75" class="purpleCard"/>
+  <use href="#aiIcon" transform="translate(807 939)"/>
+  <text x="833" y="934" class="label">Workers AI</text>
+  <text x="833" y="958" class="tiny">Kimi K2.6 • DeepSeek • CF-hosted only</text>
+  <rect x="1175" y="799" width="388" height="178" class="amberCard"/>
+  <use href="#databaseIcon" transform="translate(1209 835)"/>
+  <text x="1237" y="841" class="cardTitle">Cloudflare D1</text>
+  <text x="1198" y="882" class="body">Source cache + official directory</text>
+  <text x="1198" y="907" class="body">Search and fetch audit trail</text>
+  <text x="1198" y="932" class="body">Investigation + evidence records</text>
+  <text x="1198" y="959" class="tiny">Live input page is fetched anew</text>
+
+  <!-- External data providers and public sources -->
+  <use href="#tavilyIcon" transform="translate(1654 180) scale(1.15)"/>
+  <text x="1684" y="189" class="section">PUBLIC INTERNET</text>
+  <text x="1645" y="218" class="sectionSub">Discovery leads and source documents</text>
+  <rect x="1644" y="265" width="333" height="172" class="card"/>
+  <rect x="1663" y="283" width="48" height="48" rx="12" fill="#e8fff4"/>
+  <use href="#tavilyIcon" transform="translate(1687 307) scale(.83)"/>
+  <text x="1722" y="311" class="cardTitle">Tavily Search API</text>
+  <text x="1665" y="352" class="body">Queries → candidate URLs</text>
+  <text x="1665" y="378" class="body">and source metadata</text>
+  <text x="1665" y="411" class="tiny">API key: Cloudflare secret</text>
+  <rect x="1644" y="487" width="333" height="168" class="card"/>
+  <circle cx="1687" cy="521" r="22" fill="#dcfce7"/>
+  <path d="M1673 521h28m-14-14v28" stroke="#15803d" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="1722" y="527" class="cardTitle">Public web pages</text>
+  <text x="1665" y="568" class="body">Submitted URL + fetched</text>
+  <text x="1665" y="594" class="body">candidate evidence pages</text>
+  <text x="1665" y="628" class="tiny">Only fetched text can be quoted</text>
+  <rect x="1644" y="706" width="333" height="180" class="card"/>
+  <rect x="1663" y="723" width="48" height="48" rx="12" fill="#dcfce7"/>
+  <path d="M1676 756v-19h22v19m-27 0h32m-21-12h3m6 0h3m-12 6h3m6 0h3" fill="none" stroke="#15803d" stroke-width="2"/>
+  <text x="1722" y="752" class="cardTitle">Official registries</text>
+  <text x="1665" y="795" class="body">Certifiers and issuers</text>
+  <text x="1665" y="821" class="body">ranked as primary leads</text>
+  <text x="1665" y="856" class="tiny">Registry pages must still be fetched</text>
+
+  <text x="48" y="1081" class="body">Trust boundary: web search finds leads; ProofTrace fetches pages, checks exact quotes, and applies verdict rules in code.</text>
+  <text x="2000" y="1081" text-anchor="end" class="tiny">Implemented MVP • Cloudflare + Tavily</text>
+</svg>

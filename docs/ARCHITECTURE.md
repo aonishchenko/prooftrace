@@ -27,6 +27,8 @@ flowchart LR
   CO --> RULES[Verdict rules in code] --> UI
 ```
 
+![Current ProofTrace system architecture](architecture-assets/prooftrace-system.svg)
+
 The **Coordinator owns collection**. Its Evidence Scout stage is a named, visible tool executor, implemented as a
 module inside the Coordinator for the two-hour MVP. Specialists decide **what evidence is required** and return
 targeted queries; the Scout decides **which pages to open**, fetches them, and reports successes and failures. This
