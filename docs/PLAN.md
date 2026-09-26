@@ -1,74 +1,85 @@
-# ProofTrace — Two-hour MVP plan
+# ProofTrace — URL-first two-hour MVP plan
 
-ProofTrace checks a public sustainability claim against saved public evidence and shows its work:
-**claim → evidence required → sources checked → evidence found → gaps → verdict → next action.**
+ProofTrace starts with a **URL supplied by the user**. The app opens that page, extracts its sustainability claims,
+searches the public web for relevant evidence, fetches the promising sources, and shows **claim → evidence required →
+searches and pages checked → evidence found → gaps → verdict → next action**. A result must distinguish “not found in
+this bounded search” from “does not exist.” The [architecture](ARCHITECTURE.md) assigns each collection step.
 
-Track: AI agents. Team: 2 (Person A = page/data/deployment; Person B = agent pipeline). Time available: **2 hours**.
-The implementation contract and model choices are in [ARCHITECTURE.md](ARCHITECTURE.md).
+Track: AI agents. Team: 2 (Person A = page/data/deployment; Person B = agent pipeline). Time available: 2 hours.
+The core demo is a live URL investigation. Recorded runs are labelled backup material only.
 
-## 1. Demo scope
+## 1. Non-negotiable MVP path
 
-- One Cloudflare Worker serves the React page, API and Agents SDK Durable Objects. Models use only Cloudflare-hosted
-  Workers AI IDs (`@cf/`); no external model provider or separate backend.
-- The three fixed cases run against source snapshots saved with URLs and retrieval times. A live investigation still
-  calls the agents and models; it does not need to fetch a third-party site during the pitch.
-- Code alone chooses `BACKED`, `VAGUE` or `NOT_PUBLICLY_VERIFIABLE`. Model text cannot override the verdict.
-- Each specialist keeps feedback lessons in its own Durable Object SQLite database. For the MVP, lessons come from
-  explicit reviewer feedback; automatic reflection, embeddings and source statistics are deferred.
-- A recorded run is visibly labelled **Recorded run**. It is a reliable backup, not a substitute for claiming that a
-  model call is live. The page offers **Run live** when enabled.
+1. User pastes a public `https://` product or brand URL and clicks **Investigate**. Three sample URLs prefill the same
+   field; they do not bypass collection.
+2. The **Evidence Scout** fetches the submitted page at run time, using Cloudflare Browser Run for rendered pages and
+   Worker `fetch()` for simple HTML. It records the final URL, fetch status, retrieval time, text and links.
+3. Kimi K2.6 extracts the claim **verbatim** from that live page and classifies it. The user can see the source quote.
+4. The matching specialist lists what evidence would substantiate that claim and proposes targeted web queries. The
+   Evidence Scout executes the searches, fetches candidate pages, and records successful and failed attempts. Snippets never
+   count as evidence.
+5. The specialist assesses the fetched pages with exact quotes, issuer, independence, scope and missing items.
+   Deterministic code chooses the verdict. The page streams the trace and shows linked evidence and next action.
 
-## 2. Frozen demo cases
+The MVP uses Cloudflare-hosted Workers AI models only. A web search API supplies **URLs**, not model inference;
+the Worker and Browser Run fetch those URLs and the specialists inspect the returned pages. Use the [Brave Web Search
+API](https://api-dashboard.search.brave.com/app/documentation/web-search) for broad discovery; keep its key in a
+Worker secret. If search credentials are unavailable, link-following and known certifier lookups still work, but the
+UI must say **Limited search** and the URL-first MVP is not considered complete.
 
-Store the exact quotation and its source URL in `demo_cases`. Store the cited page text in `source_snapshots` with a
-retrieval timestamp. Preserve the surrounding passage and footnote; do not present a shortened paraphrase as a quote.
+Bound each investigation to about three search queries, eight fetched candidate pages and a 120-second run cap.
+Prioritize official certifier registers, brand methodology reports and primary documents. Respect blocked pages and
+show them as unchecked; never infer a negative result from a fetch error. A previously fetched page may be reused
+only with its cache date displayed. At least the submitted URL is fetched live for a **Live run**.
 
-| Case | Exact claim to display | Primary source and evidence | Expected result |
+## 2. Demo URLs and expected checks
+
+These URLs are examples for the input field and regression checks, not pre-computed inputs to the agents. Save
+recorded successful runs as a clearly labelled fallback after the live pipeline works.
+
+| Input URL | Claim to verify from the fetched page | Independent/extra source to discover and fetch | Expected result |
 |---|---|---|---|
-| YSL Libre | “Refilling the Eau de Parfum bottle helps to save 58%* glass, 59%* plastics and, 42%* paper.” | [YSL product page](https://www.yslbeauty.co.uk/fragrances/fragrances-for-her/libre/libre-eau-de-parfum/WW-50424YSL.html?dwvar_WW-50424YSL_size=50+ml). Its footnote compares one refillable 50 ml bottle plus one 100 ml refill with three classic non-refillable 50 ml bottles. | `NOT_PUBLICLY_VERIFIABLE`: comparison baseline is stated, but public component weights or calculation detail are still needed to reproduce the percentages. Flag the refill assumption and draft an evidence request. |
-| Garnier | “Garnier is approved by Cruelty Free International” | [Garnier UK page](https://www.garnier.co.uk/within-garnier); verify against the [certifier's Garnier listing](https://www.crueltyfreeinternational.org/approved-brands/listing/garnier/). | `BACKED` for **brand approval** if the saved certifier listing shows Garnier. Do not extend this verdict to every product unless independent evidence confirms that scope. |
-| Lush | “Endless heaps of ethically- sourced ingredients” | Heading on [Lush's bath-bomb page](https://www.lush.com/au/en/a/how-make-bath-bombs). The same page names fair trade cocoa butter and says Lush works directly with suppliers and visits them. Keep the source's unusual hyphenation in the exact quote. | `VAGUE` for the broad heading. The rewrite should identify the narrower, attributed examples and avoid treating the brand's own description as independent certification. |
+| [YSL Libre product page](https://www.yslbeauty.co.uk/fragrances/fragrances-for-her/libre/libre-eau-de-parfum/WW-50424YSL.html?dwvar_WW-50424YSL_size=50+ml) | “Refilling the Eau de Parfum bottle helps to save 58%* glass, 59%* plastics and, 42%* paper.” Preserve its footnote comparing one refillable 50 ml bottle and one 100 ml refill with three classic 50 ml bottles. | Search for published component weights, calculation method or an independently checked packaging assessment. | `NOT_PUBLICLY_VERIFIABLE` if the baseline is found but those figures cannot be reproduced from fetched public documents. Draft a request for the missing data. |
+| [Garnier UK page](https://www.garnier.co.uk/within-garnier) | “Garnier is approved by Cruelty Free International” | Fetch the [certifier's Garnier listing](https://www.crueltyfreeinternational.org/approved-brands/listing/garnier/) through discovery or a certifier directory lookup. | `BACKED` for brand approval when the live certifier page confirms it. Do not extend that result to every product unless its scope is independently confirmed. |
+| [Lush bath-bomb page](https://www.lush.com/au/en/a/how-make-bath-bombs) | “Endless heaps of ethically- sourced ingredients” (source heading; retain its spelling). | Search for sourcing policy or named ingredient evidence, then fetch the pages. The starting page itself names fair trade cocoa butter and supplier visits. | `VAGUE` for the broad heading. Attribute narrower examples to their issuer; do not label Lush's own statements as independent certification. |
 
-The Lush learning moment is feedback on the **rewrite**, not a claim that the `VAGUE` verdict was wrong. Submit
-“Rewrite missed the named cocoa butter and supplier visits.” The sourcing agent saves that lesson. A targeted rerun
-uses the same snapshot and shows **Applied lesson: …** with a better rewrite; the verdict remains `VAGUE`. Never replay
-an unchanged recording and imply it applied new feedback.
-
-Small print on results: “Based on public sources retrieved [snapshot date]. The absence of public evidence does not
-mean a claim is false.” Use each snapshot's actual date rather than a hard-coded date.
+Small print: “Based on public pages retrieved [actual timestamps]. This search may not cover every source. The absence
+of public evidence does not mean a claim is false.”
 
 ## 3. Two-hour build order
 
-| Elapsed time | Person A — page, data, deployment | Person B — agents and rules | Checkpoint |
+| Elapsed | Person A — page and deployment | Person B — collection and agents | Checkpoint |
 |---|---|---|---|
-| 0:00–0:15 | Scaffold Vite + Worker + Agents SDK; create D1; deploy a page and API response. | Define shared types and deterministic verdict rules; run one schema/tool smoke call on Kimi K2.6 and DeepSeek V4 Pro. | A deployed URL and working model calls. If a model fails, switch to the Cloudflare-hosted fallback immediately. |
-| 0:15–0:45 | Seed three cases and source snapshots; build launcher and trace/card UI with fixture data. | Implement the Coordinator's extraction stage and Quantitative Specialist. Finish **YSL** end to end first. | YSL live run displays the exact quote, comparison footnote, gap, verdict and evidence request on the deployed URL. |
-| 0:45–1:10 | Add Garnier and Lush source display and case cards. | Add Certification and Sourcing specialists. Reuse the same evidence and verdict contract. | All three cases complete live at least once. Freeze any working path. |
-| 1:10–1:30 | Add feedback control and lesson display; add a clearly labelled recorded-run fallback. | Save explicit feedback in Sourcing DO; targeted Lush rerun applies it. Record successful runs. | Reset → baseline Lush → feedback → targeted rerun works; recordings replay accurately. |
-| 1:30–1:45 | Polish only broken UI, source links and error messages; capture screenshots and backup video. | Fix schema, timeout or model failures; measure live latency. | Full flow passes on the deployed URL. |
-| 1:45–2:00 | Rehearse a two-minute pitch and prepare submission text. | Final deploy and verify one case plus recorded fallback. | Submission assets and backup are ready. |
+| 0:00–0:15 | Scaffold and deploy the Worker + React URL form. Configure D1, AI, Browser Run binding and `BRAVE_SEARCH_API_KEY` secret. | Implement shared types, URL validation and one real `fetch_page` call. Smoke test Kimi and DeepSeek Pro on the account. | Deployed page can fetch a user URL; search API and model access are known. |
+| 0:15–0:40 | Build streaming trace with fetched URL, status, quote and timestamps. | Implement live page extraction and exact claim extraction. | Paste the YSL URL; the app retrieves its claim and footnote without a saved snapshot. |
+| 0:40–1:10 | Build evidence cards, attempted-source list and error/limited-search states. | Add Evidence Scout `search_web` + fetch of ranked results, then Quantitative Specialist and verdict rules. | YSL URL runs end to end with real searches and fetched evidence/gaps. |
+| 1:10–1:35 | Add the Garnier and Lush sample URL buttons and result views. | Add Certification and Sourcing Specialists, official-source prioritization and reusable source cache. | All three sample URLs finish on the deployed URL; each trace shows which pages were actually fetched. |
+| 1:35–1:50 | Capture screenshots and backup video; record clearly labelled replay runs. | Fix failures and latency, verify source citations and scope checks. | One live URL run plus all three recorded backups work. |
+| 1:50–2:00 | Rehearse two-minute pitch and prepare submission text. | Final deploy and URL-to-verdict smoke test. | Submission assets ready. |
 
-**Pitch:** Show the YSL trace first; switch to Garnier for the positive contrast; show Lush's vague heading and the
-feedback-driven rewrite. Use a measured live run only if it fits the pitch. Otherwise label recorded runs clearly and
-offer a separate live run afterward. A 120-second run cap is a failure bound, not a target demo duration.
+**Pitch:** Paste and investigate one URL live if measured latency fits. Show the fetched page, web searches, opened
+sources and verdict. Use labelled recordings for the other cases. The 120-second cap is a failure bound, not a target
+pitch duration.
 
 ## 4. Cut order and acceptance
 
-Cut in this order if behind: arbitrary URL/text input, live page fetching, reranking, embeddings, automatic reflection,
-source statistics, model-generated coordinator narration, extra knowledge packs, restyling. The three fixed cases,
-source links, deterministic verdicts, a visible multi-agent trace and a deployable page stay in scope. If feedback is
-not working by 1:30, keep the baseline Lush result and omit the learning claim from the pitch.
+Cut feedback learning, per-agent lesson databases, embeddings, reranking, automatic reflection, extra claim types,
+polish and arbitrary multi-claim pages before cutting live URL collection. Keep URL input, live fetch, claim extraction,
+targeted web search, source fetches, visible attempt log, evidence evaluation and a deterministic verdict. The
+Evidence Scout is a module inside the Coordinator for this MVP; its ownership and trace stages remain explicit.
 
-The MVP is ready when the deployed URL can: (1) load the three cases; (2) show exact source-backed claims, evidence
-requirements and gaps; (3) produce the expected verdicts through code; (4) show agent identities and next actions;
-(5) label recorded runs; and (6) show the feedback lesson on a targeted Lush rerun if that feature is demonstrated.
+The MVP is ready when a **new user-supplied public URL** (within the supported claim types) can reach a verdict with
+at least the submitted page fetched live and its public evidence search documented. A sample-only snapshot runner
+does not meet this acceptance criterion. For blocked, unsupported or timed-out pages, show an incomplete result and
+the reason rather than a fabricated verdict.
 
-## 5. Decisions
+## 5. Decisions and setup
 
 | Item | Decision |
 |---|---|
 | Cloudflare account | `3550b1d16b78241182c4cb602b695110` (aonishchenko33) in `wrangler.jsonc` |
-| Model budget | Quality and correct evidence handling take priority over price. Use only Cloudflare-hosted Workers AI models; verify paid access with real calls. |
-| Storage | Durable Object SQLite for per-agent lessons and coordinator state; D1 for demo cases, snapshots, configuration and recorded runs. |
+| Models | Cloudflare-hosted Workers AI (`@cf/`) only; quality takes priority over price. See architecture model table. |
+| Web discovery | Brave Search returns candidate URLs. It is a search data service, not an AI model; use `BRAVE_SEARCH_API_KEY` as a Worker secret. |
+| Page collection | Worker `fetch()` for simple pages; Cloudflare Browser Run Markdown/links for rendered or difficult pages. |
+| Storage | D1 stores investigation history, fetched-page cache, search/fetch attempts and recordings. Per-agent lessons are deferred. |
 | Evidence request | Draft only; never sent to a brand. |
-| Demo reset | Reset specialist lessons to a known baseline and clear demo history; retain snapshots and recorded runs. |

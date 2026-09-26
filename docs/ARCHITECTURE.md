@@ -1,218 +1,223 @@
-# ProofTrace — Two-hour MVP architecture
+# ProofTrace — URL-first MVP architecture
 
-ProofTrace checks a sustainability claim against saved public evidence and displays **claim → evidence required →
-sources checked → evidence found → gaps → verdict → next action**. The [implementation plan](PLAN.md) defines the
-three demo cases and build checkpoints.
+**Input:** a public URL supplied by the user. **Output:** a trace showing the claim found on that page, what evidence
+was needed, web searches and pages checked, quoted evidence, gaps, a code-selected verdict and a next action. The
+[two-hour plan](PLAN.md) defines build order and demo cases. Sample URLs only prefill the input field; a live run
+collects from the internet at run time.
 
-Everything runs in Cloudflare account `3550b1d16b78241182c4cb602b695110`. Inference uses only models marked
-**Cloudflare-hosted** in the [Workers AI catalog](https://developers.cloudflare.com/workers-ai/models/) through the
-Worker's `AI` binding. An AI Gateway routes and logs those calls; it does not imply an external model provider.
+The Worker, agents, storage, browser renderer and model inference run on Cloudflare account
+`3550b1d16b78241182c4cb602b695110`. Models are **Cloudflare-hosted Workers AI** IDs (`@cf/`), never external
+inference providers. Broad web discovery uses a search data API to find candidate URLs; this is distinct from the
+model provider. Pages behind those URLs are fetched and checked by ProofTrace.
 
-## 1. Runtime and request flow
+## 1. Who collects the data
 
 ```mermaid
 flowchart LR
-  UI[React demo page] -- WebSocket state/RPC --> CO[Coordinator Agent DO]
-  UI -- HTTP --> API[Worker API]
-  API --> D1[(D1: cases, snapshots, recordings, history)]
-  CO -- RPC --> CE[Certification Agent DO]
-  CO -- RPC --> QU[Quantitative Agent DO]
-  CO -- RPC --> SO[Sourcing Agent DO]
-  CO -- config/snapshots/results --> D1
-  CE & QU & SO -- read snapshots --> D1
-  CO & CE & QU & SO --> GW[AI Gateway] --> AI[Workers AI hosted models]
+  U[User URL] --> UI[React page] --> CO[Coordinator Agent DO]
+  CO --> SC[Evidence Scout stage]
+  SC -- Worker fetch / Browser Run --> WEB[Submitted page and candidate evidence pages]
+  SC -- query --> SEARCH[Web Search API: candidate URLs]
+  SC -- fetched text, links, attempts --> D1[(D1 source cache and audit trail)]
+  CO -- extract claim --> KI[Kimi K2.6 on Workers AI]
+  CO --> CE[Certification Agent DO]
+  CO --> QU[Quantitative Agent DO]
+  CO --> SO[Sourcing Agent DO]
+  CE & QU & SO -- requirements, search queries, evidence checks --> CO
+  CO --> RULES[Verdict rules in code] --> UI
 ```
 
-The MVP has four Durable Object classes: one Coordinator per investigation and one shared instance of each of the
-three specialists. This preserves separate SQLite memory for each specialist without spending the first hour on six
-DO classes. **Claim extraction** and **verdict/action** remain visible trace stages but run inside the Coordinator:
-extraction calls Kimi, verdict selection runs deterministic code, and Kimi writes the constrained rewrite/request.
-The page may display six lanes (`coordinator`, `extractor`, three specialists, `verdict`) even though a lane is not
-necessarily a separate DO instance.
+The **Coordinator owns collection**. Its Evidence Scout stage is a named, visible tool executor, implemented as a
+module inside the Coordinator for the two-hour MVP. Specialists decide **what evidence is required** and return
+targeted queries; the Scout decides **which pages to open**, fetches them, and reports successes and failures. This
+avoids asking a language model to pretend it searched or to treat a search-result snippet as verified evidence.
 
-1. The page loads `GET /api/demo` and opens `/agents/coordinator/<investigation-id>` with `useAgent`.
-2. `Coordinator.start({caseId, mode})` loads the exact claim and saved source passages. `mode=live` invokes models;
-   `mode=replay` plays a stored trace with a persistent **Recorded run** label and no model calls.
-3. The extraction stage quotes the input exactly and classifies it. For fixed demo cases, the seeded exact claim is
-   authoritative; model extraction may identify subclaims but must not replace the quotation.
-4. The Coordinator routes certification, quantitative and sourcing claims to the matching specialist. Each specialist
-   loads its feedback lessons, states evidence requirements, reads the saved sources, and returns structured evidence
-   and gaps. Sources are treated as **data**; instructions embedded in a page cannot change agent rules.
-5. `rules.ts` chooses the verdict. The action stage writes a narrower claim and a draft evidence request when useful.
-   The Coordinator appends trace steps to its state and writes the final result to D1.
-6. `POST /api/feedback` records a review target (`verdict`, `evidence` or `rewrite`), reason and claim ID. For the Lush
-   demo it forwards rewrite feedback to the Sourcing DO, which stores a lesson. A **targeted live rerun** reuses the
-   saved snapshot, retrieves that lesson, and generates a new rewrite while retaining the `VAGUE` verdict.
-
-## 2. Quality-first model selection
-
-These are defaults based on the models' documented capabilities, **not a proven ranking for sustainability claims**.
-All listed IDs are Cloudflare-hosted Workers AI models. Paid access is acceptable. Keep model ID and supported
-reasoning level in `agent_config` so a failed smoke test can be fixed without a code redeploy.
-
-| Stage | Default hosted model | Setting | Why |
+| Step | Owner | Actual data operation | Output shown in trace |
 |---|---|---|---|
-| Coordinator routing | Code; no LLM needed | — | Case type is explicit in the MVP. A model cannot improve a deterministic route. Trace prose can be templates. |
-| Claim extraction | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Native structured output and strong tool/vision support; use the seeded quote as the accuracy anchor. |
-| Certification specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Scope and issuer matching need careful reasoning. Pro has documented function calling; budget does not justify defaulting to Flash. |
-| Quantitative specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Strong documented multi-step reasoning and function calling for baselines, calculations and assumptions. Arithmetic is still done in code. |
-| Sourcing and language specialist | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `high` | Evidence-bound interpretation and structured output. Compare one Lush result against GLM-5.3 during the initial smoke test; switch only if its quote fidelity and rewrite are better. |
-| Action writing | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Write from the rule result and cited evidence; the model cannot change the verdict or invent support. |
+| Open input | Evidence Scout | Validate the user URL, fetch it live, extract readable text and links | Requested and final URL, HTTP/fetch status, retrieval time |
+| Extract claims | Coordinator extraction stage, Kimi K2.6 | Quote exact substrings of fetched text and classify them | Claim quote and source URL |
+| Plan evidence | Certification, Quantitative or Sourcing Specialist | Return required items and two or three focused search queries | Checklist and query text |
+| Discover pages | Evidence Scout | Call `search_web(query)` and combine results with relevant links on the input page and a small official-source directory | Search results and candidate URLs; snippets marked **unverified** |
+| Collect sources | Evidence Scout | Fetch promising candidates, normally up to eight pages; preserve page text, issuer, final URL and timestamp | Every fetched, blocked, timed-out or skipped URL |
+| Evaluate | Matching specialist | Compare exact page quotes against each required item, including independence and scope | Evidence records, unsupported items and gaps |
+| Decide/action | Coordinator | `rules.ts` picks the verdict; Kimi drafts a narrower statement or evidence request from approved evidence | Verdict, citations and next action |
 
-[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is a hosted, capable
-alternative for the sourcing specialist, with structured outputs and function calling. Cloudflare describes it
-primarily as an agentic coding model; there is no published comparison here proving it better on claim language.
-[`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/)
-is the lower-latency fallback for Pro if live latency threatens the demo. A fallback must still be Cloudflare-hosted.
-No AI Gateway third-party provider IDs, BYOK keys, or external inference endpoints belong in this project.
+### Fetch and discovery tools
 
-**First 15-minute model gate:** make one real structured-output call to Kimi, one real function/structured-output call
-to DeepSeek Pro, and one Lush rewrite call to GLM-5.3 if time allows. Check schema validity, exact quotations,
-source grounding and latency. The model catalog confirms capability, but a live call confirms account access and
-actual integration. DeepSeek Pro's model page explicitly lists function calling, so this is a compatibility smoke
-test rather than an unresolved documentation question.
+- `fetch_page(url)`: try a bounded Worker [`fetch()`](https://developers.cloudflare.com/workers/runtime-apis/fetch/)
+  for simple HTML. If text is missing or the page relies on JavaScript, use Cloudflare [Browser Run Markdown Quick
+  Action](https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/) via the `BROWSER` binding.
+  Use its [links action](https://developers.cloudflare.com/browser-run/quick-actions/links-endpoint/) when link
+  discovery is needed. Keep the actual retrieval method in the record.
+- `search_web(query)`: call the [Brave Web Search API](https://api-dashboard.search.brave.com/app/documentation/web-search)
+  from the Worker with `BRAVE_SEARCH_API_KEY` stored as a Worker secret. Take URLs and metadata only. No Brave answer
+  or language model endpoint is used. A search hit is a lead, not evidence; `fetch_page` must open it before citation.
+- `lookup_official_source(name)`: a small D1 directory of certifiers and known issuer domains helps rank or directly
+  open an official register. It supplements broad search; it does not replace it for arbitrary URLs.
+- `calculate(...)`: safe, bounded arithmetic in code for a quantitative claim. Never evaluate model-generated code.
+
+The [Browser Run `/crawl` endpoint](https://developers.cloudflare.com/browser-run/quick-actions/crawl-endpoint/)
+can follow links from one site, but it is asynchronous and does not search the whole web. It is deferred from the
+two-hour MVP. Cloudflare AI Search searches indexed data, not arbitrary public pages for a newly submitted URL.
+
+### Bounded investigation loop
+
+1. Normalize and validate the input: `https://` (or safe `http://` redirect), no credentials, local/private/link-local
+   destinations or non-web schemes. Recheck every redirect and discovered URL before fetching. Cap page size and
+   redirect count.
+2. Fetch the submitted page **live**. If it is blocked or has no usable text, stop with an incomplete result and
+   show why. Do not silently substitute a saved demo snapshot.
+3. Ask Kimi to extract the claim. Verify the returned quote occurs in the fetched text. If there are several claims,
+   let the user choose one for the MVP; do not combine unrelated claims into one verdict.
+4. The specialist returns required items and targeted queries (for example, certifier + brand; percentage +
+   methodology; ingredient + sourcing policy). The Scout runs up to three searches, deduplicates and ranks URLs,
+   favoring the named certifier, issuer documents and primary methodology over aggregators.
+5. Fetch up to eight candidate pages, with short per-page timeouts and concurrency limits. Search the fetched text
+   for candidate passages, then let the specialist judge them. Verify every evidence quote against its fetched page.
+6. Stop when material requirements are answered or the 120-second run cap is near. Save the search/fetch audit trail
+   and return a result. A blocked page remains a gap in collection, not proof of a false claim.
+
+The Scout may reuse a D1 cached page if fresh enough, but the card shows its original fetch timestamp and labels it
+**Cached source**. At least the submitted page is fetched at run time for a **Live run**. Recorded playback is always
+labelled **Recorded run** and never presented as live collection.
+
+## 2. Models chosen for evidence quality
+
+All IDs below are marked Cloudflare-hosted in the [Workers AI catalog](https://developers.cloudflare.com/workers-ai/models/).
+These are capability-based defaults, not a measured ranking for sustainability claims. Paid access is acceptable.
+
+| Role | Hosted model | Setting | Reason |
+|---|---|---|---|
+| Coordinator route and Scout tool execution | Code | — | Explicit claim type, URL validation, requests and source records should be deterministic. |
+| Claim extraction | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Structured output, with a programmatic exact-substring check against the live page. |
+| Certification Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about issuer, brand and certification scope from fetched pages; Pro supports function calling. |
+| Quantitative Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about comparison baseline, method and assumptions. Arithmetic runs in code. |
+| Sourcing Specialist | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `high` | Interpret broad wording against specific cited facts. Compare with hosted GLM-5.3 on the Lush case if time permits. |
+| Action writing | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Write only from the rule result and fetched evidence. |
+
+[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is a hosted alternative
+for sourcing. [`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/)
+is a hosted latency fallback for Pro. Do not add third-party inference IDs through AI Gateway. Run one actual model
+and Browser Run call during setup to confirm paid access, schema/tool behavior and latency.
 
 Use `workers-ai-provider` with the `AI` binding and `gateway: { id: "prooftrace" }`. With AI SDK v6, use
-`generateText({ output: Output.object({ schema }) })` for validated structured results and `generateText` with tools
-for tool calls. Pin compatible package versions. Send only reasoning values supported by the selected model and
-verify provider-specific option mapping in the smoke test. Reject or retry invalid schemas once within the run's
-remaining time budget.
+`generateText({ output: Output.object({ schema }) })` for structured outputs. Pin compatible versions and test the
+provider's mapping of each model's reasoning option. AI Gateway caching is optional and only identical requests
+can hit; it cannot replace live evidence collection.
 
-AI Gateway provides logs and optional caching. Caching is disabled by default and only identical requests hit it;
-do not assume repeated runs are free. Skip cache for feedback-sensitive live reruns if caching is enabled.
+## 3. Agents, state and data contract
 
-## 3. Agent responsibilities and evidence tools
-
-| Component | Instance | Responsibility | SQLite memory |
-|---|---|---|---|
-| Coordinator | One per investigation | Run stages, sync trace, enforce timeout, write D1 result | State and trace only |
-| Certification Specialist | Shared `main` | Match brand, issuer and **claimed scope** against a certifier's own saved listing | Feedback lessons |
-| Quantitative Specialist | Shared `main` | Identify baseline, method, figures and assumptions; use code for arithmetic | Feedback lessons |
-| Sourcing Specialist | Shared `main` | Identify vague language and cite narrower, attributable facts | Feedback lessons |
-
-The MVP tool is `get_snapshot(url)`: it returns the exact stored source text, URL, issuer and UTC retrieval time from
-D1. `calculate` is a small allowlisted arithmetic function for percentages; never evaluate an arbitrary expression.
-Live HTTP fetching, register scraping, reranking and vector search are later work. The Garnier certifier snapshot
-must be captured from the certifier's listing, not inferred from Garnier's own page.
-
-Store only explicit feedback lessons for the demo. A lesson includes `claim_type`, `feedback_target`, `lesson`,
-`source_case_id`, `created_at` and `baseline_version`. Select relevant lessons by claim type and case ID; show the
-selected text on the card. No embeddings are necessary for three cases. Reset deletes feedback lessons and restores
-any seeded baseline, which makes the learning demonstration repeatable.
-
-## 4. Data and UI contract
+MVP Durable Objects: Coordinator (one per investigation), and shared Certification, Quantitative and Sourcing
+Specialists. The Evidence Scout, extractor and verdict/action are trace stages owned by the Coordinator. The three
+specialists may later get private lesson databases, but that is below live retrieval in priority.
 
 D1 tables needed now:
 
-| Table | Minimum fields |
+| Table | Minimum contents |
 |---|---|
-| `demo_cases` | `id`, `title`, `claim_text`, `claim_type`, `claim_url`, `expected_verdict`, `display_order` |
-| `source_snapshots` | `url`, `issuer`, `text`, `retrieved_at`, `content_hash` |
-| `recorded_runs` | `case_id`, `trace_json`, `result_json`, `recorded_at` |
-| `investigations` | `id`, `case_id`, `mode`, `status`, `result_json`, `created_at` |
-| `feedback` | `id`, `investigation_id`, `claim_id`, `target`, `reason`, `created_at` |
-| `agent_config` | `agent_id`, `model_id`, `reasoning_level`, `timeout_ms` |
-
-The specialist `lessons` table lives in each specialist's Durable Object SQLite database. Create and seed D1 in
-repeatable scripts; make seed inserts idempotent. A recording stores the mode and snapshot timestamp used to produce
-it. `POST /api/demo/reset` clears demo history and feedback lessons, and retains snapshots, configuration and
-recordings. Restrict that endpoint to the demo operator if the deployed page is public.
+| `investigations` | ID, input URL, run mode, status, selected claim, verdict/result, start/end times |
+| `source_pages` | Requested/final URL, issuer, text, content hash, fetched time, fetch method, cache expiry |
+| `source_attempts` | Investigation ID, query or URL, stage, status, reason, time, source page ID if fetched |
+| `evidence` | Investigation/claim ID, source page ID, exact quote, support level, independence, scope and requirements satisfied |
+| `official_sources` | Certifier name, domain and lookup URL pattern where known |
+| `demo_cases` | Sample input URL, title and expected regression outcome; no preselected claim or evidence returned to live agents |
+| `recorded_runs` | Input URL, trace/result JSON, snapshot times and recording time for labelled backup playback |
+| `agent_config` | Role, hosted model ID, supported reasoning level and timeout |
 
 ```ts
 export type Verdict = "BACKED" | "VAGUE" | "NOT_PUBLICLY_VERIFIABLE";
-export type AgentId = "coordinator" | "extractor" | "certification" | "quantitative" | "sourcing" | "verdict";
+export type RunMode = "live" | "replay";
+export type AgentId = "coordinator" | "scout" | "extractor" | "certification" | "quantitative" | "sourcing" | "verdict";
 
 export interface Investigation {
   id: string;
-  input: { caseId: string; mode: "live" | "replay" };
-  status: "idle" | "running" | "done" | "error";
+  input: { url: string; mode: RunMode };
+  status: "running" | "done" | "incomplete" | "error";
   steps: Step[];
   claims: ClaimResult[];
+  selectedClaimId?: string;
   error?: string;
 }
 
 export interface Step {
   id: string;
   agent: AgentId;
-  kind: "extract" | "route" | "require" | "lesson" | "fetch" | "match" | "gap" | "verdict" | "action";
+  kind: "fetch" | "extract" | "require" | "search" | "open" | "match" | "gap" | "verdict" | "action";
   label: string;
-  detail?: string;               // concise evidence reasoning, never hidden chain-of-thought
+  detail?: string;                 // evidence summary, never hidden chain-of-thought
   status: "running" | "ok" | "fail" | "info";
-  sourceUrl?: string;
+  url?: string;
   claimId?: string;
-  at: number;                    // milliseconds since start; replay preserves this timing
+  at: number;                      // ms since start
 }
 
 export interface Evidence {
   url: string;
   issuer: string;
-  quote: string;
+  quote: string;                    // verified substring of a fetched source page
   retrievedAt: string;
+  cached: boolean;
   independent: boolean;
   supports: "full" | "partial" | "none";
   scopeMatch: boolean;
-  satisfies: string[];          // IDs/names of required items this record supports
+  satisfies: string[];
 }
 
 export interface ClaimResult {
   claimId: string;
-  text: string;                 // exact source wording
+  text: string;                     // exact substring of the submitted page
   sourceUrl: string;
   type: "certification" | "quantitative" | "sourcing" | "generic";
-  specialist: AgentId;
   required: string[];
   evidence: Evidence[];
   gaps: string[];
-  checks: { name: string; pass: boolean }[];
-  lessonsApplied: string[];
-  verdict: Verdict;
+  checkedUrls: { url: string; status: "fetched" | "blocked" | "timeout" | "skipped" }[];
+  verdict?: Verdict;               // absent when the investigation is incomplete
   rewrite?: string;
   nextAction?: string;
-  evidenceRequest?: string;     // draft only
+  evidenceRequest?: string;       // draft only
 }
 ```
 
-## 5. Deterministic verdict rules
+The page opens `/agents/coordinator/<investigation-id>` with `useAgent` and calls a method with `{url, mode}`.
+`GET /api/demo` returns sample URLs; `GET /api/history` returns past runs. The Coordinator streams state updates
+through the Agents SDK and persists its final result in D1. Route `/agents/*` through `routeAgentRequest` before
+serving API and assets.
 
-Apply the rules in this order, with explicit unit checks for the three frozen cases:
+## 4. Verdicts and collection limits
 
-1. `VAGUE` when the claim itself uses an undefined broad term without a bounded, testable scope. Specific related
-   facts elsewhere on a brand page may inform a narrower rewrite but do not retroactively make the broad quote
-   specific. Lush's heading follows this rule.
-2. `BACKED` only when the claim is specific, **all material required items have no unresolved gaps**, and current
-   independent evidence fully supports the exact claim and its scope. A certifier listing supports Garnier brand
-   approval; it does not automatically support an “all products” claim. For a saved register snapshot, display the
-   snapshot retrieval date; do not call it a live register check.
-3. Otherwise `NOT_PUBLICLY_VERIFIABLE`. Self-declared numerical figures, a stated comparison baseline, or partial
-   evidence do not by themselves reproduce the numbers. YSL follows this rule until component-level data and method
-   are available.
+1. `VAGUE` when the exact quote uses an undefined broad term without bounded, testable scope. Other facts found on
+   the source site can inform a narrower rewrite but cannot make that quote precise.
+2. `BACKED` only for a specific claim with all material requirements met by current, fetched, independent evidence
+   matching the exact issuer and scope. A live certifier listing can support Garnier brand approval; it cannot
+   automatically verify every Garnier product.
+3. `NOT_PUBLICLY_VERIFIABLE` when a specific claim remains unsupported after a completed bounded search. For YSL,
+   a brand-stated baseline without the component data or reproducible method does not establish the percentages.
 
-“Current” is a configurable age threshold measured from the source's **retrieval or publication time as appropriate**;
-it is not proof that a certification remains valid today. If a required source is stale, mark its currentness check
-false and avoid `BACKED` until refreshed. Show: claim specific, evidence found, independent source, scope matches,
-evidence current, required items complete. A failed model or fetch returns a partial/error state, never a fabricated
-verdict.
+If the submitted page fails to load, web search is unavailable, or the run times out before a meaningful check,
+return `incomplete` with no unsupported verdict. Report what was attempted. A verdict is about **publicly found
+evidence within this search**, not a legal finding or proof a claim is false. Show actual page retrieval times and
+identify self-declared brand statements.
 
-## 6. Reliability, deployment and boundaries
+The URL collector must not fetch private network addresses, follow redirects into them, download unbounded files or
+execute instructions found in page text. Browser Run and source websites can block automated access; surface that
+as a collection failure. Evidence requests are drafts and are never sent.
 
-- Cap the full live run at 120 seconds. Give individual calls shorter deadlines and retry only when enough run time
-  remains. Measure actual latency before deciding what to show live in a two-minute pitch.
-- Source snapshots make the demo independent of third-party site availability. Every result links to the original
-  page and shows the actual snapshot date. Brand statements are labelled as brand statements.
-- Never expose raw provider errors or hidden reasoning to the page. Trace details are short evidence summaries.
-- Evidence requests are drafts and are never sent. The deployed page is `noindex`.
-- Use the Cloudflare Vite plugin's asset build path; do not assume a hand-written `assets` block without a directory
-  is deployable. Route `/agents/*` through `routeAgentRequest`, then handle API routes and assets.
+## 5. Cloudflare setup
 
-Minimum Wrangler bindings and migrations:
+The [Browser Run binding](https://developers.cloudflare.com/browser-run/quick-actions/) supports Markdown and links
+Quick Actions without a Browser Run API token. It requires a compatibility date of at least `2026-03-24`; local
+development needs remote browser mode. The Brave Search key is separate and is kept in a Wrangler secret.
 
 ```jsonc
 {
   "name": "prooftrace",
   "account_id": "3550b1d16b78241182c4cb602b695110",
   "main": "src/server.ts",
+  "compatibility_date": "2026-09-26",
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI" },
+  "browser": { "binding": "BROWSER", "remote": true },
   "d1_databases": [{ "binding": "DB", "database_name": "prooftrace", "database_id": "<from wrangler d1 create>" }],
   "durable_objects": { "bindings": [
     { "name": "Coordinator", "class_name": "Coordinator" },
@@ -227,21 +232,22 @@ Minimum Wrangler bindings and migrations:
 }
 ```
 
-Generate Worker types after changing bindings. Do not enable `experimentalDecorators` for Agents SDK `@callable`;
-add a new DO migration tag rather than editing an existing deployed migration.
+Set `BRAVE_SEARCH_API_KEY` using `wrangler secret put`, never in the repo. Use the Cloudflare Vite plugin's asset
+build path. Generate Worker types after changing bindings; do not enable `experimentalDecorators` for `@callable`.
 
-## 7. Repository layout
+## 6. Repository layout
 
 ```
-src/server.ts                   # Worker entry, Agents SDK routing, API and assets
+src/server.ts                   # Worker routing, API and assets
 src/shared/types.ts             # contract above
-src/agents/coordinator.ts       # orchestration, extraction, verdict/action stages, trace
+src/agents/coordinator.ts       # orchestration, extraction, verdict/action, state
+src/agents/evidence-scout.ts    # fetch_page, search_web, link discovery and provenance
 src/agents/certification.ts
 src/agents/quantitative.ts
 src/agents/sourcing.ts
 src/agents/rules.ts             # deterministic verdict rules
 src/agents/models.ts            # hosted Workers AI calls and schemas
-src/app/                       # React demo page
-migrations/ seed/ scripts/      # D1 setup, snapshots and recording
+src/app/                       # React URL input, live trace and evidence cards
+migrations/ seed/ scripts/      # D1 setup and optional recording
 docs/PLAN.md docs/ARCHITECTURE.md
 ```
