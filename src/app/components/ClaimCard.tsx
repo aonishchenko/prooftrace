@@ -2,64 +2,104 @@ import { useState } from "react";
 import type { ClaimResult, Verdict } from "../../shared/types";
 import { formatUtc, truncateUrl } from "../format";
 import { EvidenceRequestModal } from "./EvidenceRequestModal";
+import { EvidenceIcon, VerdictIcon, type EvidenceState } from "./icons";
 
 const VERDICT_LABEL: Record<Verdict, string> = {
-  BACKED: "BACKED",
-  VAGUE: "VAGUE",
-  NOT_PUBLICLY_VERIFIABLE: "NOT PUBLICLY VERIFIABLE",
+  BACKED: "Backed",
+  VAGUE: "Vague",
+  NOT_PUBLICLY_VERIFIABLE: "Not publicly verifiable",
 };
 
-function VerdictBadge({ verdict, attempted }: { verdict?: Verdict; attempted: boolean }) {
-  if (!verdict) {
-    return <span className="chip chip--verdict chip--verdict-none">{attempted ? "UNVERIFIED" : "NOT CHECKED"}</span>;
-  }
+const VERDICT_CLASS: Record<Verdict, string> = {
+  BACKED: "v-backed",
+  VAGUE: "v-vague",
+  NOT_PUBLICLY_VERIFIABLE: "v-not_public",
+};
+
+const EVIDENCE_LABEL: Record<EvidenceState, string> = {
+  found: "Found",
+  partial: "Partial / self-declared",
+  not_found: "Not found",
+};
+
+function VerdictPill({ verdict, attempted }: { verdict?: Verdict; attempted: boolean }) {
+  const cls = verdict ? VERDICT_CLASS[verdict] : "v-none";
+  const label = verdict ? VERDICT_LABEL[verdict] : attempted ? "Unverified" : "Not checked";
   return (
-    <span className={`chip chip--verdict chip--verdict-${verdict.toLowerCase()}`}>
-      {VERDICT_LABEL[verdict]}
+    <span className={`pill pop ${cls}`}>
+      <VerdictIcon verdict={verdict} />
+      {label}
     </span>
   );
 }
 
 export function ClaimCard({ claim }: { claim: ClaimResult }) {
   const [showRequest, setShowRequest] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Only evidence that is independent, in scope, and fully supportive can tick
-  // a requirement - matches the backend's own verdict rule, so a checkmark
-  // here never contradicts the claim's overall verdict. Everything else
-  // (self-declared, out-of-scope, or partial support) still tells the reader
-  // something was found, but only as a neutral "partial / self-declared" note.
+  // a requirement - matches the backend's own verdict rule, so a tick here
+  // never contradicts the claim's overall verdict. Everything else (self-declared,
+  // out-of-scope, or partial support) shows as "partial / self-declared".
   const isStrongEvidence = (e: (typeof claim.evidence)[number]) =>
     e.independent && e.scopeMatch && e.supports === "full";
-  const satisfied = new Set(
-    claim.evidence.filter(isStrongEvidence).flatMap((e) => e.satisfies),
-  );
+  const satisfied = new Set(claim.evidence.filter(isStrongEvidence).flatMap((e) => e.satisfies));
   const weaklySatisfied = new Set(
     claim.evidence.filter((e) => !isStrongEvidence(e)).flatMap((e) => e.satisfies),
   );
+  const requirementState = (req: string): EvidenceState =>
+    satisfied.has(req) ? "found" : weaklySatisfied.has(req) ? "partial" : "not_found";
+
+  const copyRewrite = async () => {
+    if (!claim.rewrite) return;
+    try {
+      await navigator.clipboard.writeText(claim.rewrite);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1700);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <article className="claim-card">
-      <blockquote className="claim-card__quote">
-        “{claim.text}”
-        <footer>
+      <div className="blk">
+        <p className="lbl">The claim</p>
+        <p className="serif claimq">“{claim.text}”</p>
+        <div className="meta">
+          <span className="tag">{claim.type}</span>
           <a href={claim.sourceUrl} target="_blank" rel="noreferrer" title={claim.sourceUrl}>
-            {truncateUrl(claim.sourceUrl)}
+            {truncateUrl(claim.sourceUrl.replace(/^https?:\/\//, ""), 48)}
           </a>
-        </footer>
-      </blockquote>
-
-      <div className="claim-card__meta">
-        <span className="chip chip--type">{claim.type}</span>
-        <VerdictBadge verdict={claim.verdict} attempted={claim.required.length > 0 || claim.checkedUrls.length > 0} />
+        </div>
       </div>
 
+      <VerdictPill verdict={claim.verdict} attempted={claim.required.length > 0 || claim.checkedUrls.length > 0} />
+
+      {claim.nextAction && <p className="sum">{claim.nextAction}</p>}
+
+      {claim.gaps.length > 0 && (
+        <div className="blk">
+          <p className="lbl">Gaps</p>
+          {claim.gaps.map((gap) => (
+            <p key={gap} className="tip">
+              {gap}
+            </p>
+          ))}
+        </div>
+      )}
+
       {claim.checks && claim.checks.length > 0 && (
-        <div className="claim-card__section">
-          <h4>Checks</h4>
-          <ul className="claim-card__checks">
+        <div className="blk">
+          <p className="lbl">Checks</p>
+          <ul className="checks">
             {claim.checks.map((check) => (
-              <li key={check.name} className={check.pass ? "is-pass" : "is-fail"}>
-                <span aria-hidden="true">{check.pass ? "✓" : "✕"}</span> {check.name}
+              <li key={check.name} className={check.pass ? "s-found" : "s-not_found"}>
+                <EvidenceIcon state={check.pass ? "found" : "not_found"} />
+                <span>
+                  <span className="sr-only">{check.pass ? "Passed: " : "Not met: "}</span>
+                  {check.name}
+                </span>
               </li>
             ))}
           </ul>
@@ -67,96 +107,90 @@ export function ClaimCard({ claim }: { claim: ClaimResult }) {
       )}
 
       {claim.required.length > 0 && (
-        <div className="claim-card__section">
-          <h4>Evidence required</h4>
-          <ul>
-            {claim.required.map((req) => {
-              const isFull = satisfied.has(req);
-              const isPartial = !isFull && weaklySatisfied.has(req);
-              return (
-                <li key={req} className={isFull ? "is-pass" : isPartial ? "is-partial" : undefined}>
-                  {isFull && <span aria-hidden="true">✓ </span>}
-                  {isPartial && <span aria-hidden="true">◐ </span>}
-                  {req}
-                  {isPartial && <span className="claim-card__partial-note"> partial / self-declared</span>}
-                </li>
-              );
-            })}
-          </ul>
+        <div className="blk">
+          <p className="lbl">Evidence required</p>
+          {claim.required.map((req) => {
+            const state = requirementState(req);
+            return (
+              <div key={req} className={`evi s-${state}`}>
+                <EvidenceIcon state={state} />
+                <div>
+                  <span className="n">{req}</span> <span className="x">· {EVIDENCE_LABEL[state]}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {claim.evidence.length > 0 && (
-        <div className="claim-card__section">
-          <h4>Evidence</h4>
-          <ul className="evidence-list">
-            {claim.evidence.map((evidence, index) => (
-              <li key={`${evidence.url}-${index}`}>
-                <blockquote>“{evidence.quote}”</blockquote>
-                <div className="evidence-list__meta">
-                  <span>{evidence.issuer}</span>
-                  <a href={evidence.url} target="_blank" rel="noreferrer" title={evidence.url}>
-                    {truncateUrl(evidence.url)}
-                  </a>
-                  <span className="chip">{evidence.independent ? "Independent" : "Self-declared"}</span>
-                  {evidence.cached && <span className="chip">Cached source</span>}
-                  <span className="chip">Supports {evidence.supports}</span>
-                  <span className="evidence-list__date">{formatUtc(evidence.retrievedAt)}</span>
+        <div className="blk">
+          <p className="lbl">Evidence</p>
+          {claim.evidence.map((evidence, index) => {
+            const state: EvidenceState = isStrongEvidence(evidence) ? "found" : evidence.supports === "none" ? "not_found" : "partial";
+            return (
+              <div key={`${evidence.url}-${index}`} className={`evi s-${state}`}>
+                <EvidenceIcon state={state} />
+                <div>
+                  <blockquote className="quote">“{evidence.quote}”</blockquote>
+                  <div className="x">
+                    <span className="n">{evidence.issuer}</span>
+                    {" · "}
+                    {evidence.independent ? "Independent" : "Self-declared"}
+                    {" · "}supports {evidence.supports}
+                    {evidence.cached && " · Cached source"}
+                    {" · "}
+                    <a href={evidence.url} target="_blank" rel="noreferrer" title={evidence.url}>
+                      Source
+                    </a>
+                    {" · "}
+                    {formatUtc(evidence.retrievedAt)}
+                  </div>
                 </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {claim.gaps.length > 0 && (
-        <div className="claim-card__section">
-          <h4>Gaps</h4>
-          <ul>
-            {claim.gaps.map((gap) => (
-              <li key={gap}>{gap}</li>
-            ))}
-          </ul>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {claim.checkedUrls.length > 0 && (
-        <details className="claim-card__sources">
+        <details className="sources">
           <summary>Sources checked ({claim.checkedUrls.length})</summary>
           <ul>
             {claim.checkedUrls.map((checked) => (
               <li key={checked.url}>
-                <span className={`chip chip--${checked.status}`}>{checked.status}</span>
+                <span className={`tag tag--${checked.status}`}>{checked.status}</span>
                 <a href={checked.url} target="_blank" rel="noreferrer" title={checked.url}>
-                  {truncateUrl(checked.url)}
+                  {truncateUrl(checked.url.replace(/^https?:\/\//, ""))}
                 </a>
-                {checked.reason && <span className="claim-card__reason"> — {checked.reason}</span>}
+                {checked.reason && <span className="x"> — {checked.reason}</span>}
               </li>
             ))}
           </ul>
         </details>
       )}
 
-      {claim.rewrite && (
-        <div className="claim-card__section">
-          <h4>Rewrite suggestion</h4>
-          <p>{claim.rewrite}</p>
-        </div>
-      )}
-
-      {claim.nextAction && (
-        <div className="claim-card__section">
-          <h4>Next action</h4>
-          <p>{claim.nextAction}</p>
-        </div>
-      )}
-
-      {claim.evidenceRequest && (
-        <div>
-          <button type="button" className="button button--secondary" onClick={() => setShowRequest(true)}>
-            Request missing evidence
-          </button>
-          {showRequest && (
+      {(claim.rewrite || claim.evidenceRequest) && (
+        <div className="act">
+          {claim.rewrite && (
+            <>
+              <span className="h">Suggested rewrite</span>
+              <p className="q">{claim.rewrite}</p>
+            </>
+          )}
+          <div className="act__buttons">
+            {claim.rewrite && (
+              <button type="button" className="cta cta--quiet" onClick={copyRewrite}>
+                {copied ? "Copied" : "Copy suggested rewrite"}
+              </button>
+            )}
+            {claim.evidenceRequest && (
+              <button type="button" className="cta" onClick={() => setShowRequest(true)}>
+                Request missing evidence
+              </button>
+            )}
+          </div>
+          {showRequest && claim.evidenceRequest && (
             <EvidenceRequestModal text={claim.evidenceRequest} onClose={() => setShowRequest(false)} />
           )}
         </div>

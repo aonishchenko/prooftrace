@@ -21,7 +21,7 @@ function isDemoCaseArray(value: unknown): value is DemoCase[] {
 }
 
 /** "Try:" chips from GET /api/demo. Clicking one only prefills the input. */
-export function DemoChips({ onPick }: { onPick: (url: string) => void }) {
+export function DemoChips({ onPick, selectedUrl }: { onPick: (url: string) => void; selectedUrl?: string }) {
   const [cases, setCases] = useState<DemoCase[]>([]);
 
   useEffect(() => {
@@ -40,18 +40,23 @@ export function DemoChips({ onPick }: { onPick: (url: string) => void }) {
   if (cases.length === 0) return null;
 
   return (
-    <div className="demo-chips">
-      <span className="demo-chips__label">Try:</span>
-      {cases.map((demoCase) => (
-        <button
-          key={demoCase.id}
-          type="button"
-          className="chip chip--demo"
-          onClick={() => onPick(demoCase.input_url)}
-        >
-          {demoCase.title}
-        </button>
-      ))}
+    <div className="exs">
+      <span className="lbl">Examples</span>
+      {cases.map((demoCase) => {
+        const [brand, ...rest] = demoCase.title.split(/\s[—–-]\s/);
+        return (
+          <button
+            key={demoCase.id}
+            type="button"
+            className="ex"
+            aria-pressed={selectedUrl === demoCase.input_url}
+            onClick={() => onPick(demoCase.input_url)}
+          >
+            <b>{brand}</b>
+            {rest.length > 0 && <span>{rest.join(" — ")}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }

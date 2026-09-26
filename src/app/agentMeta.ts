@@ -1,5 +1,4 @@
-// Presentation metadata for each AgentId: readable name + a distinct badge colour.
-// Colour values are CSS custom-property references so dark mode swaps them automatically.
+// Presentation metadata for each AgentId: readable name + a distinct colour (studio palette tokens).
 import type { AgentId } from "../shared/types";
 
 export interface AgentMeta {

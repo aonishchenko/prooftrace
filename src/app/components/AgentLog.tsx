@@ -1,12 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import type { Step } from "../../shared/types";
 import { AGENT_META } from "../agentMeta";
 import { elapsed, truncateUrl } from "../format";
 
-function statusIcon(status: Step["status"]): ReactNode {
-  switch (status) {
-    case "running":
-      return <span className="spinner" />;
+function dotContent(step: Step, index: number): string {
+  switch (step.status) {
     case "ok":
       return "✓";
     case "fail":
@@ -14,7 +12,7 @@ function statusIcon(status: Step["status"]): ReactNode {
     case "info":
       return "•";
     default:
-      return null;
+      return String(index + 1);
   }
 }
 
@@ -33,40 +31,36 @@ function statusText(status: Step["status"]): string {
   }
 }
 
-function StepRow({ step }: { step: Step }) {
+function StepRow({ step, index }: { step: Step; index: number }) {
   const meta = AGENT_META[step.agent];
   return (
-    <li className="step-row">
-      <span className="step-row__time">{elapsed(step.at)}</span>
-      <span className="step-row__badge" style={{ backgroundColor: meta?.color }}>
-        {meta?.name ?? step.agent}
+    <li className={`step step--${step.status}`}>
+      <span className="dot" aria-hidden="true">
+        {dotContent(step, index)}
       </span>
-      <span className="step-row__icon" aria-hidden="true">
-        {statusIcon(step.status)}
-      </span>
-      <span className="step-row__body">
-        <span className="step-row__label">
+      <div className="step__body">
+        <div className="src">
+          <span className="src__agent" style={{ color: meta?.color }}>
+            {meta?.name ?? step.agent}
+          </span>
+          <span className="src__time">{elapsed(step.at)}</span>
+        </div>
+        <div className="t">
           <span className="sr-only">{statusText(step.status)}: </span>
           {step.label}
-          {step.url && (
-            <a
-              className="step-row__url"
-              href={step.url}
-              target="_blank"
-              rel="noreferrer"
-              title={step.url}
-            >
-              {truncateUrl(step.url)}
-            </a>
-          )}
-        </span>
-        {step.detail && <span className="step-row__detail">{step.detail}</span>}
-      </span>
+        </div>
+        {step.detail && <div className="d">{step.detail}</div>}
+        {step.url && (
+          <a className="step__url" href={step.url} target="_blank" rel="noreferrer" title={step.url}>
+            {truncateUrl(step.url.replace(/^https?:\/\//, ""))}
+          </a>
+        )}
+      </div>
     </li>
   );
 }
 
-/** Auto-scrolls to the newest step while running, unless the user has scrolled up. */
+/** Live timeline of agent steps. Auto-scrolls to the newest step while running, unless the user scrolled up. */
 export function AgentLog({ steps, running }: { steps: Step[]; running: boolean }) {
   const containerRef = useRef<HTMLOListElement>(null);
   const stickToBottomRef = useRef(true);
@@ -85,13 +79,13 @@ export function AgentLog({ steps, running }: { steps: Step[]; running: boolean }
   }, [steps, running]);
 
   if (steps.length === 0) {
-    return <p className="agent-log__empty">Waiting for the first step…</p>;
+    return <p className="wait">Waiting for the first step…</p>;
   }
 
   return (
-    <ol className="agent-log" aria-live="polite" ref={containerRef} onScroll={handleScroll}>
-      {steps.map((step) => (
-        <StepRow key={step.id} step={step} />
+    <ol className="steps" aria-live="polite" ref={containerRef} onScroll={handleScroll}>
+      {steps.map((step, index) => (
+        <StepRow key={step.id} step={step} index={index} />
       ))}
     </ol>
   );

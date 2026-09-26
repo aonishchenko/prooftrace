@@ -26,14 +26,14 @@ export function EvidenceRequestModal({ text, onClose }: { text: string; onClose:
 
   return (
     <dialog ref={dialogRef} className="evidence-modal" aria-labelledby="evidence-modal-title">
-      <h3 id="evidence-modal-title">Request missing evidence</h3>
+      <h3 id="evidence-modal-title" className="serif">Request missing evidence</h3>
       <p className="evidence-modal__hint">Draft only. ProofTrace never sends this.</p>
-      <textarea readOnly value={text} rows={6} aria-label="Draft evidence request" />
+      <textarea readOnly value={text} rows={8} aria-label="Draft evidence request" />
       <div className="evidence-modal__actions">
-        <button type="button" className="button button--secondary" onClick={handleCopy}>
-          {copied ? "Copied!" : "Copy"}
+        <button type="button" className="cta" onClick={handleCopy}>
+          {copied ? "Copied" : "Copy evidence request"}
         </button>
-        <button type="button" className="button button--primary" onClick={() => dialogRef.current?.close()}>
+        <button type="button" className="textlink" onClick={() => dialogRef.current?.close()}>
           Close
         </button>
       </div>

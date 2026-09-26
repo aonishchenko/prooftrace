@@ -85,28 +85,51 @@ export default function App() {
   const running = status === "running" && !stalled;
 
   return (
-    <main className="app-shell">
+    <div className="ds">
       <Header />
-      <InvestigateForm url={url} onUrlChange={setUrl} onSubmit={handleSubmit} disabled={running} />
-      <DemoChips onPick={setUrl} />
-      {stalled && (
-        <div className="stall-banner" role="alert">
-          <p>This run seems stalled. It has been running for over two minutes with no result.</p>
-          <button type="button" className="button button--secondary" onClick={handleStartNewRun}>
-            Start a new run
-          </button>
-        </div>
-      )}
-      {run && (
-        <InvestigationView
-          key={run.id}
-          id={run.id}
-          url={run.url}
-          mock={mockMode}
-          onState={handleState}
-          onFailed={handleFailed}
-        />
-      )}
-    </main>
+      <main className="pad page">
+        <section className="top" aria-label="Check a page">
+          <div>
+            <h1 className="serif top__title">Is this claim backed by evidence?</h1>
+            <p className="lead">Checks a sustainability claim against public evidence and shows its work.</p>
+          </div>
+          <div className="inputs">
+            <InvestigateForm url={url} onUrlChange={setUrl} onSubmit={handleSubmit} disabled={running} />
+            <DemoChips onPick={setUrl} selectedUrl={url} />
+          </div>
+        </section>
+        {stalled && (
+          <div className="stall-banner" role="alert">
+            <p>This run seems stalled. It has been running for over two minutes with no result.</p>
+            <button type="button" className="textlink" onClick={handleStartNewRun}>
+              Start a new run
+            </button>
+          </div>
+        )}
+        {run ? (
+          <InvestigationView
+            key={run.id}
+            id={run.id}
+            url={run.url}
+            mock={mockMode}
+            onState={handleState}
+            onFailed={handleFailed}
+          />
+        ) : (
+          <div className="work">
+            <section aria-label="Agent steps">
+              <p className="lbl">Agent log</p>
+              <p className="wait">Paste a product or brand page address, then choose “Investigate”.</p>
+            </section>
+            <section className="result">
+              <p className="wait">Ready when you are. The agents open the page, find its claims and look for the proof.</p>
+            </section>
+          </div>
+        )}
+      </main>
+      <footer className="foot">
+        A review of public evidence on the date checked. Not a judgement of intent. Not legal advice.
+      </footer>
+    </div>
   );
 }

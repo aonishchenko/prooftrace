@@ -32,10 +32,10 @@ export function Report({ investigation }: { investigation: Investigation }) {
   const range = formatUtcRange(allRetrievedAt);
 
   return (
-    <section className="report" aria-label="Investigation report">
+    <div className="report" aria-label="Investigation report">
       {(status === "incomplete" || status === "error") && (
         <div className="report__error" role="alert">
-          <h2>{status === "error" ? "Something went wrong" : "Investigation incomplete"}</h2>
+          <p className="report__error-title">{status === "error" ? "Something went wrong" : "Investigation incomplete"}</p>
           <p>{investigation.error ?? "No further detail was provided."}</p>
           {investigation.steps.length > 0 && (
             <details className="report__attempted">
@@ -58,11 +58,11 @@ export function Report({ investigation }: { investigation: Investigation }) {
 
       {other.length > 0 && (
         <div className="report__other-claims">
-          <h3>Other claims found</h3>
+          <p className="lbl">Other claims found</p>
           <ul>
             {other.map((claim) => (
               <li key={claim.claimId}>
-                <span className="chip chip--type">{claim.type}</span> “{claim.text}”
+                <span className="tag">{claim.type}</span> <span className="serif">“{claim.text}”</span>
               </li>
             ))}
           </ul>
@@ -76,6 +76,6 @@ export function Report({ investigation }: { investigation: Investigation }) {
         This search may not cover every source. The absence of public evidence does not mean a claim is
         false.
       </p>
-    </section>
+    </div>
   );
 }

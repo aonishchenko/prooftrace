@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type { Investigation } from "../../shared/types";
 import { secondsSince } from "../format";
 
+/** Must match the Coordinator's run cap; drives the progress line. */
+const RUN_CAP_SECONDS = 120;
+
 function statusLabel(status: Investigation["status"]): string {
   switch (status) {
     case "idle":
@@ -40,16 +43,22 @@ export function StatusBar({ investigation }: { investigation: Investigation }) {
       ? new Date(investigation.finishedAt).getTime()
       : now;
   const seconds = secondsSince(startedMs, endMs);
+  const progress = running ? Math.min(100, (seconds / RUN_CAP_SECONDS) * 100) : 100;
 
   return (
     <div className="status-bar" role="status">
-      <span className="status-bar__elapsed">{seconds}s</span>
-      <span className="status-bar__text">{statusLabel(investigation.status)}</span>
-      {investigation.searchMode === "limited" && (
-        <span className="status-bar__note">
-          Limited search: links on the page and known official sources only
+      <div className="meta">
+        <span className={`status-bar__state status-bar__state--${investigation.status}`}>
+          {statusLabel(investigation.status)}
         </span>
-      )}
+        <span>{seconds}s</span>
+        {investigation.searchMode === "limited" && (
+          <span>Limited search: links on the page and known official sources only</span>
+        )}
+      </div>
+      <div className="prog" aria-hidden="true">
+        <i style={{ width: `${progress}%` }} />
+      </div>
     </div>
   );
 }
