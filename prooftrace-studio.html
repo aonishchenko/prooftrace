@@ -1,0 +1,160 @@
+<title>ProofTrace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Hanken+Grotesk:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
+<style>
+* { box-sizing: border-box; }
+html, body { background: #FCF8F2; }
+body { margin: 0; }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid #C4501A; outline-offset: 2px; }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); background: #2B2420; color: #fff; padding: 10px 18px; border-radius: 999px; font-weight: 600; font-size: 14px; z-index: 9; }
+.ds { min-height: 100vh; }
+.pad.A, .foot { max-width: 1280px; margin-inline: auto; }
+.ds { --bg: #FCF8F2; --surface: #FFFFFF; --ink: #2B2420; --muted: #74685F; --faint: #9A8D83; --line: #ECE3D8; --line-2: #F3ECE3;
+  --accent: #C4501A; --accent-ink: #FFFFFF; --mark: #F2B33D; --mark-soft: #FCEBC4;
+  --ok: #1E6B4E; --ok-bg: #E7F3EC; --mid: #7A5600; --mid-bg: #FFF1C6; --gap: #B4471A; --gap-bg: #FDEBE1;
+  --shadow: 0 1px 2px rgba(80,55,30,.04), 0 14px 34px rgba(80,55,30,.07);
+  background: var(--bg); color: var(--ink); font-family: "Hanken Grotesk", system-ui, sans-serif; font-size: 16px; line-height: 1.6; }
+.ds .serif { font-family: "Gloock", Georgia, serif; font-weight: 400; }
+.ds .lbl { font: 500 11.5px "DM Mono", ui-monospace, monospace; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); margin: 0; }
+.ds a { color: var(--ink); text-decoration-color: var(--mark); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.ds p { margin: 0; }
+
+/* top bar + wordmark */
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px clamp(18px, 3vw, 40px); border-bottom: 1px solid var(--line); background: var(--bg); }
+.wm { display: inline-flex; align-items: center; gap: 2px; text-decoration: none; color: var(--ink); font: 400 26px/1 "Gloock", Georgia, serif; letter-spacing: -.01em; }
+.wm .p { position: relative; }
+.wm .p::after { content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 3px; border-radius: 2px; background: var(--mark); }
+.wm svg { width: 18px; height: 18px; margin-left: 5px; transform: translateY(-9px); color: var(--accent); }
+.nav { display: flex; gap: 22px; font-size: 14.5px; font-weight: 600; }
+.nav a { color: var(--muted); text-decoration: none; }
+.nav a:hover { color: var(--ink); }
+.pad { padding: clamp(20px, 3vw, 40px); }
+.foot { font-size: 12.5px; color: var(--faint); padding: 0 clamp(20px, 3vw, 40px) 28px; max-width: 110ch; }
+
+/* shared pieces */
+.ask { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; padding: 6px; }
+.ask:focus-within { border-color: var(--ink); }
+.ask input { border: 0; background: transparent; padding: 10px 12px; min-width: 0; color: var(--ink); }
+.ask input:focus-visible { outline: none; }
+.cta { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 9px; padding: 11px 20px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.cta:disabled { opacity: .6; cursor: progress; }
+.textlink { background: none; border: 0; padding: 2px 0; cursor: pointer; font-weight: 700; color: var(--ink); text-decoration: underline; text-decoration-color: var(--mark); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.exs { display: flex; flex-wrap: wrap; gap: 6px 24px; align-items: baseline; }
+.ex { background: none; border: 0; padding: 4px 0; cursor: pointer; display: inline-flex; gap: 8px; align-items: baseline; border-bottom: 2px solid transparent; color: var(--muted); }
+.ex b { color: var(--ink); }
+.ex[aria-pressed="true"] { border-bottom-color: var(--mark); }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px 7px 9px; border-radius: 999px; font-weight: 700; font-size: 16px; line-height: 1.1; justify-self: start; }
+.pill svg { width: 24px; height: 24px; flex: none; }
+.v-backed { background: var(--ok-bg); color: var(--ok); } .v-vague { background: var(--mid-bg); color: var(--mid); } .v-not_public { background: var(--gap-bg); color: var(--gap); }
+.tip { border-left: 2px solid var(--mark); padding-left: 14px; font-weight: 600; }
+.evi { display: grid; grid-template-columns: 20px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-2); }
+.evi svg { width: 18px; height: 18px; margin-top: 3px; }
+.s-found { color: var(--ok); } .s-partial { color: var(--mid); } .s-not_found { color: var(--gap); }
+.evi .n { color: var(--ink); font-weight: 700; } .evi .x { color: var(--muted); font-size: 14.5px; }
+.act { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 16px; }
+.act .h { font-weight: 800; }
+.act .q { font: 400 17px/1.45 "Gloock", Georgia, serif; }
+.act textarea { width: 100%; min-height: 110px; border: 1.5px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); color: var(--ink); resize: vertical; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li { display: grid; grid-template-columns: 22px 1fr; gap: 12px; padding-bottom: 14px; position: relative; }
+.steps li:not(:last-child)::before { content: ""; position: absolute; left: 10px; top: 24px; bottom: 2px; width: 1.5px; background: var(--line); }
+.steps li.done:not(:last-child)::before { background: var(--ink); }
+.dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line); color: var(--faint); font: 500 11px "DM Mono", monospace; background: var(--surface); }
+.steps li.done .dot { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.steps li.run .dot { border-color: var(--mark); color: var(--ink); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px var(--mark-soft); } }
+.steps li:not(.done):not(.run) { opacity: .5; }
+.steps .d, .steps .src { display: none; }
+.steps li { padding-bottom: 10px; }
+.steps .t { font-weight: 700; }
+.steps .d { font-size: 14.5px; color: var(--muted); }
+.steps .src { font: 500 11px "DM Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.pop { animation: pop .45s cubic-bezier(.2,1.4,.4,1); }
+@keyframes pop { from { transform: scale(.95); opacity: .3; } }
+.wait { color: var(--muted); padding: 28px 0; }
+
+/* A: Studio */
+.A .top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px 40px; align-items: center; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.A h2 { margin: 0; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.08; letter-spacing: -.01em; text-wrap: balance; }
+.A .lead { color: var(--muted); margin-top: 8px; }
+.A .inputs { display: grid; gap: 12px; }
+.A .work { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 44px; margin-top: 26px; align-items: start; }
+.A .claimq { font-size: 22px; line-height: 1.35; margin: 6px 0 8px; }
+.A .meta { font-size: 13.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.A .prog { height: 2px; background: var(--line); margin: 18px 0; } .A .prog i { display: block; height: 100%; width: 0; background: var(--ink); transition: width .5s; }
+.A .result { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 26px; box-shadow: var(--shadow); display: grid; gap: 18px; }
+.A .result .blk { display: grid; gap: 4px; }
+.ds .sum { font-size: 18px; font-weight: 600; line-height: 1.4; }
+.evi { padding: 8px 0; }
+
+@media (max-width: 900px) {
+  .A .top, .A .work { grid-template-columns: 1fr; }
+  .nav { display: none; }
+}
+@media (max-width: 520px) { .ask { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+<div class="ds" id="ds"></div>
+<script>
+
+var CASES = {"garnier": {"id": "garnier", "brand": "Garnier", "parent": "L'Oréal", "claim_type": "Animal testing claim", "claim_text": "Approved by Cruelty Free International under the Leaping Bunny Programme.", "claim_short": "Leaping Bunny approved", "source_label": "garnier.co.uk", "source_url": "https://www.garnier.co.uk/cruelty-free-international", "checked_on": "26 September 2026", "steps": [{"title": "Read the brand page", "detail": "Found the claim on the Garnier cruelty-free page.", "source": "Brand website"}, {"title": "Spotted the evidence it names", "detail": "The claim names a scheme: Leaping Bunny, run by Cruelty Free International.", "source": "Claim text"}, {"title": "Chose where to look", "detail": "An independent certifier holds the proof, so look there, not on the brand site.", "source": "Agent decision"}, {"title": "Searched the certifier", "detail": "Garnier appears as an approved brand. Approval reported publicly since 2021.", "source": "Cruelty Free International"}, {"title": "Matched the scope", "detail": "The approval covers the Garnier brand, which is what the claim says.", "source": "Agent decision"}], "verdict": "backed", "headline": "Backed by an independent source", "why": "The claim names a specific independent scheme. The certifier lists the brand, and the approval covers what the claim says.", "what_it_means": "You can repeat this claim with confidence and link to the certifier.", "what_would_help": "Keep the link to the certifier's listing next to the claim, so shoppers can check it in one click.", "evidence": [{"name": "Cruelty Free International, approved brand listing", "status": "found", "note": "Independent certifier confirms approval.", "url": "https://www.crueltyfreeinternational.org/"}, {"name": "Garnier cruelty-free page", "status": "found", "note": "Brand statement matches the certifier record.", "url": "https://www.garnier.co.uk/cruelty-free-international"}], "next_action": {"type": "share", "label": "Copy summary", "text": "Garnier: 'Approved by Cruelty Free International under the Leaping Bunny Programme.' Backed by an independent source. Checked 26 September 2026."}, "team_check": "Before the demo, open the Cruelty Free International brand search and confirm Garnier is listed today.", "summary": "An independent certifier lists the brand.", "tip_short": "Link to the certifier's listing next to the claim.", "takeaway": "Safe to repeat, with the certifier's link."}, "lush": {"id": "lush", "brand": "Lush", "parent": null, "claim_type": "Sourcing claim", "claim_text": "Our ingredients are ethically sourced.", "claim_short": "Ethically sourced ingredients", "source_label": "lush.com", "source_url": "https://www.lush.com/uk/en", "checked_on": "26 September 2026", "steps": [{"title": "Read the brand page", "detail": "Found a general claim that ingredients are ethically sourced.", "source": "Brand website"}, {"title": "Followed the sourcing pages", "detail": "Opened the brand's pages on how it buys ingredients.", "source": "Brand website"}, {"title": "Looked ingredient by ingredient", "detail": "Found specific sourcing stories and named suppliers for some ingredients.", "source": "Brand website"}, {"title": "Searched for outside evidence", "detail": "Looked for an independent scheme that covers the claim as written.", "source": "Web search"}, {"title": "Tested the words themselves", "detail": "'Ethically sourced' has no stated meaning or scope, so no source can confirm it as written.", "source": "Agent decision"}], "verdict": "vague", "headline": "Vague", "why": "Evidence exists for some ingredients. The claim covers all ingredients and does not say what 'ethically sourced' means, so it cannot be tested as written.", "what_it_means": "The work behind the claim may be real. The wording is wider than the evidence.", "what_would_help": "Good news: the evidence is partly there. Name the ingredient, the supplier and the standard, and the claim becomes checkable.", "evidence": [{"name": "Brand pages for individual ingredients", "status": "partial", "note": "Specific evidence for some ingredients, not all.", "url": null}, {"name": "Independent scheme covering all ingredients", "status": "not_found", "note": "No single scheme covers the claim as written.", "url": null}], "next_action": {"type": "rewrite", "label": "Copy suggested rewrite", "text": "The [ingredient] in this product is bought directly from [named supplier or cooperative] in [country], under [named scheme or published standard]."}, "team_check": "Before the demo, copy the exact claim wording and page address from lush.com, and confirm which ingredient pages name suppliers.", "summary": "The words are wider than the evidence.", "tip_short": "Name the ingredient, the supplier and the standard.", "takeaway": "Ask the brand what it covers."}, "ysl": {"id": "ysl", "brand": "YSL Beauty", "parent": "L'Oréal", "claim_type": "Packaging claim with numbers", "claim_text": "Refilling the Eau de Parfum Intense bottle helps to save up to 58% glass, 100% metal, 59% plastic, and 42% paper.", "claim_short": "Refill saves up to 58% glass", "source_label": "yslbeauty.com, Libre Eau de Parfum Intense", "source_url": "https://www.yslbeauty.com/int/fragrance/feminine-fragrance/ysl-libre-eau-de-parfum-intense/WW-50657YSL.html", "checked_on": "26 September 2026", "steps": [{"title": "Read the product page", "detail": "Found a claim with four percentages and a footnote.", "source": "Brand website"}, {"title": "Recognised the claim type", "detail": "Numbers need measurements behind them, not a certificate.", "source": "Agent decision"}, {"title": "Read the stated basis", "detail": "Footnote: one refillable 100 ml bottle and one 100 ml refill, compared with two classic 50 ml bottles.", "source": "Brand website"}, {"title": "Searched for the data behind it", "detail": "Looked for component weights, a bill of materials or an independent review. None published.", "source": "Web search"}, {"title": "Knew when to stop", "detail": "The claim is precise. The numbers behind it are not public, so the next step is to ask.", "source": "Agent decision"}], "verdict": "not_public", "headline": "Evidence not public", "why": "The claim is precise and states its basis. To confirm the percentages, a reviewer needs the measured weights behind them, and those are not published.", "what_it_means": "This is not a finding against the claim. It means the proof sits with the brand, not in public view.", "what_would_help": "One step left: share the component weights, or publish a short method note next to the claim.", "evidence": [{"name": "Calculation basis in the footnote", "status": "found", "note": "The comparison is stated on the page.", "url": "https://www.yslbeauty.com/int/fragrance/feminine-fragrance/ysl-libre-eau-de-parfum-intense/WW-50657YSL.html"}, {"name": "Component weights or bill of materials", "status": "not_found", "note": "Needed to reproduce the percentages.", "url": null}, {"name": "Independent review of the calculation", "status": "not_found", "note": "No third-party review found.", "url": null}], "next_action": {"type": "request", "label": "Copy evidence request", "text": "Please provide the packaging bill of materials or verified component weights used to calculate the stated savings of 58% glass, 100% metal, 59% plastic and 42% paper for Libre Eau de Parfum Intense. Please include the weights for one refillable 100 ml bottle and one 100 ml refill, the weights for two classic 50 ml bottles, and the functional unit used, including the volume of fragrance in each scenario."}, "team_check": "Before the demo, reopen the page and confirm the figures and the footnote. Other Libre products carry different figures.", "summary": "Precise numbers, but the data behind them is not published.", "tip_short": "Publish the component weights behind each figure.", "takeaway": "Ask the brand for the numbers."}};
+var ORDER = ['garnier', 'lush', 'ysl'];
+var $ = function (s, r) { return (r || document).querySelector(s); };
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+var V = {
+  backed: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 20.5l5.5 5.5L28.5 14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  vague: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 17c3-3 5 3 8 0s5-3 8 0M12 24c3-3 5 3 8 0s5-3 8 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
+  not_public: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2.6" stroke-dasharray="5 4"/><path d="M14 18h12v9H14zM16.5 18v-2.5a3.5 3.5 0 017 0V18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/></svg>'
+};
+var EI = {
+  found: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 10.3l2.8 2.8L14.2 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  partial: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 1.5a8.5 8.5 0 010 17z" fill="currentColor"/></svg>',
+  not_found: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/></svg>'
+};
+var EL = { found: 'Found', partial: 'Partly found', not_found: 'Not public' };
+var ACT_T = { share: 'Share', rewrite: 'Suggested rewrite', request: 'Request the evidence' };
+var DISC = 'A review of public evidence on the date checked. Not a judgement of intent. Not legal advice.';
+var TICK = '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M5.8 10.4l2.7 2.7 5.7-5.9" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function bar() { return '<header class="bar"><a class="wm" href="#" aria-label="ProofTrace home"><span>Proof</span><span class="p">Trace</span>' + TICK + '</a><nav class="nav" aria-label="Main"><a href="#">How it works</a><a href="#">For retailers</a></nav></header>'; }
+function pill(c, anim) { return '<span class="pill v-' + c.verdict + (anim ? ' pop' : '') + '">' + V[c.verdict] + esc(c.headline) + '</span>'; }
+function evRows(c) { return c.evidence.map(function (e) { return '<div class="evi s-' + e.status + '">' + EI[e.status] + '<div><span class="n">' + esc(e.name) + '</span> <span class="x">· ' + EL[e.status] + (e.url ? ' · <a href="' + esc(e.url) + '" target="_blank" rel="noopener">Source</a>' : '') + '</span></div></div>'; }).join(''); }
+function act(c, id) {
+  var a = c.next_action;
+  var body = a.type === 'request' ? '<textarea aria-label="Evidence request, editable" id="' + id + '">' + esc(a.text) + '</textarea>' : '<p class="q" id="' + id + '">' + esc(a.text) + '</p>';
+  return '<div class="act"><span class="h">' + ACT_T[a.type] + '</span>' + body + '<div><button type="button" class="cta" data-copy="' + id + '">' + esc(a.label) + '</button></div></div>';
+}
+function stepsHTML(c, d, r) { return c.steps.map(function (s, i) { return '<li class="' + (i < d ? 'done' : i === r ? 'run' : '') + '"><span class="dot">' + (i < d ? '✓' : i + 1) + '</span><div><div class="src">' + esc(s.source) + '</div><div class="t">' + esc(s.title) + '</div><div class="d">' + esc(s.detail) + '</div></div></li>'; }).join(''); }
+function exsHTML(cur) { return '<span class="lbl">Examples</span>' + ORDER.map(function (k) { var c = CASES[k]; return '<button type="button" class="ex" data-k="' + k + '" aria-pressed="' + (k === cur) + '"><b>' + esc(c.brand) + '</b><span>' + esc(c.claim_short) + '</span></button>'; }).join(''); }
+function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 1700); }
+function copyFrom(el) { var txt = el.value !== undefined ? el.value : el.textContent; var fb = function () { if (el.select) el.select(); else { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); } toast('Selected. Copy with your keyboard.'); }; try { navigator.clipboard.writeText(txt).then(function () { toast('Copied'); }, fb); } catch (e) { fb(); } }
+function short(u) { return u.replace(/^https?:\/\//, ''); }
+
+/* ---------- A: Studio ---------- */
+var A = { cur: 'garnier', busy: false };
+function renderA(root) {
+  root.innerHTML = bar() + '<div class="pad A"><div class="top"><div><h2 class="serif">Is this claim backed by evidence?</h2></div>' +
+    '<div class="inputs"><form class="ask" id="a-f"><input id="a-in" aria-label="Product page address or claim" placeholder="Paste a product page address or a claim"><button class="cta" id="a-go">Check this claim</button></form><div class="exs" id="a-ex"></div></div></div>' +
+    '<div class="work"><section aria-label="Claim and steps"><p class="lbl">The claim</p><p class="serif claimq" id="a-q"></p><div class="meta" id="a-meta"></div><div class="prog"><i id="a-prog"></i></div><p class="lbl" style="margin-bottom:12px">Steps</p><ol class="steps" id="a-st"></ol></section>' +
+    '<section class="result" id="a-res" aria-live="polite"></section></div></div><p class="foot">' + DISC + '</p>';
+  var sel = function (k) { A.cur = k; var c = CASES[k]; $('#a-ex', root).innerHTML = exsHTML(k); $('#a-in', root).value = short(c.source_url); $('#a-q', root).textContent = '“' + c.claim_text + '”'; $('#a-meta', root).innerHTML = '<span>' + esc(c.brand) + '</span><span>Checked ' + esc(c.checked_on) + '</span>'; };
+  var steps = function (c, d, r) { $('#a-st', root).innerHTML = stepsHTML(c, d, r); $('#a-prog', root).style.width = (d / c.steps.length * 100) + '%'; };
+  var result = function (c, anim) {
+    $('#a-res', root).innerHTML = pill(c, anim) + '<p class="sum">' + esc(c.summary) + '</p><p class="tip">' + esc(c.tip_short) + '</p>' +
+      '<div class="blk"><p class="lbl">Evidence</p>' + evRows(c) + '</div>' + act(c, 'a-act') + '<div><button type="button" class="textlink" id="a-next">Next example</button></div>';
+  };
+  var idle = function () { steps(CASES[A.cur], 0, -1); $('#a-res', root).innerHTML = '<p class="wait">Ready when you are. Choose “Check this claim”.</p>'; };
+  var run = function () { if (A.busy) return; A.busy = true; var c = CASES[A.cur], i = 0, b = $('#a-go', root); b.disabled = true; b.textContent = 'Checking…'; $('#a-res', root).innerHTML = '<p class="wait">Looking for the proof…</p>';
+    (function tick() { steps(c, i, i); if (i >= c.steps.length) { steps(c, c.steps.length, -1); result(c, !reduce); A.busy = false; b.disabled = false; b.textContent = 'Check this claim'; return; } i++; setTimeout(tick, reduce ? 60 : 900); })(); };
+  $('#a-ex', root).addEventListener('click', function (e) { var b = e.target.closest('.ex'); if (b && !A.busy) { sel(b.dataset.k); idle(); } });
+  $('#a-f', root).addEventListener('submit', function (e) { e.preventDefault(); run(); });
+  $('#a-res', root).addEventListener('click', function (e) { if (e.target.id === 'a-next') { sel(ORDER[(ORDER.indexOf(A.cur) + 1) % 3]); idle(); return; } var b = e.target.closest('[data-copy]'); if (b) copyFrom($('#' + b.dataset.copy, root)); });
+  sel(A.cur); steps(CASES[A.cur], 5, -1); result(CASES[A.cur], false);
+}
+
+
+renderA(document.getElementById('ds'));
+</script>

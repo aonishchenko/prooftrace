@@ -1,0 +1,66 @@
+{
+  "id": "lush",
+  "brand": "Lush",
+  "parent": null,
+  "claim_type": "Sourcing claim",
+  "claim_text": "Our ingredients are ethically sourced.",
+  "claim_short": "Ethically sourced ingredients",
+  "source_label": "lush.com",
+  "source_url": "https://www.lush.com/uk/en",
+  "checked_on": "26 September 2026",
+  "steps": [
+    {
+      "title": "Read the brand page",
+      "detail": "Found a general claim that ingredients are ethically sourced.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Followed the sourcing pages",
+      "detail": "Opened the brand's pages on how it buys ingredients.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Looked ingredient by ingredient",
+      "detail": "Found specific sourcing stories and named suppliers for some ingredients.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Searched for outside evidence",
+      "detail": "Looked for an independent scheme that covers the claim as written.",
+      "source": "Web search"
+    },
+    {
+      "title": "Tested the words themselves",
+      "detail": "'Ethically sourced' has no stated meaning or scope, so no source can confirm it as written.",
+      "source": "Agent decision"
+    }
+  ],
+  "verdict": "vague",
+  "headline": "Vague",
+  "why": "Evidence exists for some ingredients. The claim covers all ingredients and does not say what 'ethically sourced' means, so it cannot be tested as written.",
+  "what_it_means": "The work behind the claim may be real. The wording is wider than the evidence.",
+  "what_would_help": "Good news: the evidence is partly there. Name the ingredient, the supplier and the standard, and the claim becomes checkable.",
+  "evidence": [
+    {
+      "name": "Brand pages for individual ingredients",
+      "status": "partial",
+      "note": "Specific evidence for some ingredients, not all.",
+      "url": null
+    },
+    {
+      "name": "Independent scheme covering all ingredients",
+      "status": "not_found",
+      "note": "No single scheme covers the claim as written.",
+      "url": null
+    }
+  ],
+  "next_action": {
+    "type": "rewrite",
+    "label": "Copy suggested rewrite",
+    "text": "The [ingredient] in this product is bought directly from [named supplier or cooperative] in [country], under [named scheme or published standard]."
+  },
+  "team_check": "Before the demo, copy the exact claim wording and page address from lush.com, and confirm which ingredient pages name suppliers.",
+  "summary": "The words are wider than the evidence.",
+  "tip_short": "Name the ingredient, the supplier and the standard.",
+  "takeaway": "Ask the brand what it covers."
+}

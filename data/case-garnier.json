@@ -1,0 +1,66 @@
+{
+  "id": "garnier",
+  "brand": "Garnier",
+  "parent": "L'Oréal",
+  "claim_type": "Animal testing claim",
+  "claim_text": "Approved by Cruelty Free International under the Leaping Bunny Programme.",
+  "claim_short": "Leaping Bunny approved",
+  "source_label": "garnier.co.uk",
+  "source_url": "https://www.garnier.co.uk/cruelty-free-international",
+  "checked_on": "26 September 2026",
+  "steps": [
+    {
+      "title": "Read the brand page",
+      "detail": "Found the claim on the Garnier cruelty-free page.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Spotted the evidence it names",
+      "detail": "The claim names a scheme: Leaping Bunny, run by Cruelty Free International.",
+      "source": "Claim text"
+    },
+    {
+      "title": "Chose where to look",
+      "detail": "An independent certifier holds the proof, so look there, not on the brand site.",
+      "source": "Agent decision"
+    },
+    {
+      "title": "Searched the certifier",
+      "detail": "Garnier appears as an approved brand. Approval reported publicly since 2021.",
+      "source": "Cruelty Free International"
+    },
+    {
+      "title": "Matched the scope",
+      "detail": "The approval covers the Garnier brand, which is what the claim says.",
+      "source": "Agent decision"
+    }
+  ],
+  "verdict": "backed",
+  "headline": "Backed by an independent source",
+  "why": "The claim names a specific independent scheme. The certifier lists the brand, and the approval covers what the claim says.",
+  "what_it_means": "You can repeat this claim with confidence and link to the certifier.",
+  "what_would_help": "Keep the link to the certifier's listing next to the claim, so shoppers can check it in one click.",
+  "evidence": [
+    {
+      "name": "Cruelty Free International, approved brand listing",
+      "status": "found",
+      "note": "Independent certifier confirms approval.",
+      "url": "https://www.crueltyfreeinternational.org/"
+    },
+    {
+      "name": "Garnier cruelty-free page",
+      "status": "found",
+      "note": "Brand statement matches the certifier record.",
+      "url": "https://www.garnier.co.uk/cruelty-free-international"
+    }
+  ],
+  "next_action": {
+    "type": "share",
+    "label": "Copy summary",
+    "text": "Garnier: 'Approved by Cruelty Free International under the Leaping Bunny Programme.' Backed by an independent source. Checked 26 September 2026."
+  },
+  "team_check": "Before the demo, open the Cruelty Free International brand search and confirm Garnier is listed today.",
+  "summary": "An independent certifier lists the brand.",
+  "tip_short": "Link to the certifier's listing next to the claim.",
+  "takeaway": "Safe to repeat, with the certifier's link."
+}

@@ -1,0 +1,72 @@
+{
+  "id": "ysl",
+  "brand": "YSL Beauty",
+  "parent": "L'Oréal",
+  "claim_type": "Packaging claim with numbers",
+  "claim_text": "Refilling the Eau de Parfum Intense bottle helps to save up to 58% glass, 100% metal, 59% plastic, and 42% paper.",
+  "claim_short": "Refill saves up to 58% glass",
+  "source_label": "yslbeauty.com, Libre Eau de Parfum Intense",
+  "source_url": "https://www.yslbeauty.com/int/fragrance/feminine-fragrance/ysl-libre-eau-de-parfum-intense/WW-50657YSL.html",
+  "checked_on": "26 September 2026",
+  "steps": [
+    {
+      "title": "Read the product page",
+      "detail": "Found a claim with four percentages and a footnote.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Recognised the claim type",
+      "detail": "Numbers need measurements behind them, not a certificate.",
+      "source": "Agent decision"
+    },
+    {
+      "title": "Read the stated basis",
+      "detail": "Footnote: one refillable 100 ml bottle and one 100 ml refill, compared with two classic 50 ml bottles.",
+      "source": "Brand website"
+    },
+    {
+      "title": "Searched for the data behind it",
+      "detail": "Looked for component weights, a bill of materials or an independent review. None published.",
+      "source": "Web search"
+    },
+    {
+      "title": "Knew when to stop",
+      "detail": "The claim is precise. The numbers behind it are not public, so the next step is to ask.",
+      "source": "Agent decision"
+    }
+  ],
+  "verdict": "not_public",
+  "headline": "Evidence not public",
+  "why": "The claim is precise and states its basis. To confirm the percentages, a reviewer needs the measured weights behind them, and those are not published.",
+  "what_it_means": "This is not a finding against the claim. It means the proof sits with the brand, not in public view.",
+  "what_would_help": "One step left: share the component weights, or publish a short method note next to the claim.",
+  "evidence": [
+    {
+      "name": "Calculation basis in the footnote",
+      "status": "found",
+      "note": "The comparison is stated on the page.",
+      "url": "https://www.yslbeauty.com/int/fragrance/feminine-fragrance/ysl-libre-eau-de-parfum-intense/WW-50657YSL.html"
+    },
+    {
+      "name": "Component weights or bill of materials",
+      "status": "not_found",
+      "note": "Needed to reproduce the percentages.",
+      "url": null
+    },
+    {
+      "name": "Independent review of the calculation",
+      "status": "not_found",
+      "note": "No third-party review found.",
+      "url": null
+    }
+  ],
+  "next_action": {
+    "type": "request",
+    "label": "Copy evidence request",
+    "text": "Please provide the packaging bill of materials or verified component weights used to calculate the stated savings of 58% glass, 100% metal, 59% plastic and 42% paper for Libre Eau de Parfum Intense. Please include the weights for one refillable 100 ml bottle and one 100 ml refill, the weights for two classic 50 ml bottles, and the functional unit used, including the volume of fragrance in each scenario."
+  },
+  "team_check": "Before the demo, reopen the page and confirm the figures and the footnote. Other Libre products carry different figures.",
+  "summary": "Precise numbers, but the data behind them is not published.",
+  "tip_short": "Publish the component weights behind each figure.",
+  "takeaway": "Ask the brand for the numbers."
+}
