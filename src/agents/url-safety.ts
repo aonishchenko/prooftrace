@@ -3,6 +3,12 @@
 // The platform `URL` parser already canonicalises decimal/hex/octal IPv4 host forms
 // (e.g. "2130706433" or "0x7f000001" both become "127.0.0.1") and IPv4-mapped IPv6
 // literals into hex groups, so this module only has to classify the parser's output.
+//
+// Known limitation: this module validates the literal host in the URL only. It deliberately does
+// not resolve hostnames via DNS (e.g. DNS-over-HTTPS) to check where they actually point, so a
+// public hostname that resolves to a private/loopback address at fetch time (DNS rebinding) is
+// not caught here. `fetch()` runs from the Workers runtime, whose egress network already can't
+// reach RFC1918/loopback/link-local ranges, which mitigates the residual risk.
 
 export type UrlCheck = { ok: true; url: URL } | { ok: false; reason: string };
 
@@ -39,7 +45,9 @@ export function validatePublicUrl(input: string): UrlCheck {
 }
 
 function checkHostname(hostnameRaw: string): HostCheck {
-  const hostname = hostnameRaw.toLowerCase();
+  // Strip a trailing FQDN root dot ("localhost." is the same host as "localhost") before any
+  // suffix/equality checks below, otherwise it silently bypasses them.
+  const hostname = hostnameRaw.toLowerCase().replace(/\.+$/, "");
 
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return checkIPv6Literal(hostname.slice(1, -1));
@@ -84,7 +92,17 @@ function checkIPv4([a, b, c, d]: [number, number, number, number]): HostCheck {
   if (a === 100 && b >= 64 && b <= 127) {
     return { ok: false, reason: "Shared address space / CGNAT (100.64.0.0/10) addresses are not public." };
   }
+  if (a === 192 && b === 0 && c === 0) {
+    return { ok: false, reason: "IETF protocol assignment addresses (192.0.0.0/24) are not public." };
+  }
+  if (a === 192 && b === 88 && c === 99) {
+    return { ok: false, reason: "6to4 relay anycast addresses (192.88.99.0/24) are not public." };
+  }
+  if (a === 198 && (b === 18 || b === 19)) {
+    return { ok: false, reason: "Benchmarking addresses (198.18.0.0/15) are not public." };
+  }
   if (a >= 224) {
+    // Covers multicast (224.0.0.0/4) and reserved-for-future-use (240.0.0.0/4), including broadcast.
     return { ok: false, reason: "Multicast or reserved addresses are not public." };
   }
   return { ok: true };
@@ -152,13 +170,43 @@ function checkIPv6Groups(g: number[]): HostCheck {
 
   // IPv4-mapped IPv6: ::ffff:0:0/96 — check the embedded IPv4 address too.
   if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
-    const a = (g[6] >> 8) & 0xff;
-    const b = g[6] & 0xff;
-    const c = (g[7] >> 8) & 0xff;
-    const d = g[7] & 0xff;
-    const inner = checkIPv4([a, b, c, d]);
+    const inner = checkIPv4(last32AsIPv4(g));
     if (!inner.ok) return { ok: false, reason: `IPv4-mapped address: ${inner.reason}` };
   }
 
+  // IPv4-compatible IPv6 (deprecated, RFC 4291 historical): ::a.b.c.d/96 — groups 0-5 all zero.
+  // Distinct from the mapped form above (which sets group 5 to 0xffff) and from the loopback/
+  // unspecified addresses already handled above (which return before reaching this point). This
+  // is the form that let "[::127.0.0.1]" (written as "[::7f00:1]") slip past validation.
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    const inner = checkIPv4(last32AsIPv4(g));
+    if (!inner.ok) return { ok: false, reason: `IPv4-compatible address: ${inner.reason}` };
+  }
+
+  // NAT64 well-known prefix 64:ff9b::/96 embeds an IPv4 address in the last 32 bits.
+  if (g[0] === 0x0064 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    const inner = checkIPv4(last32AsIPv4(g));
+    if (!inner.ok) return { ok: false, reason: `NAT64-embedded address: ${inner.reason}` };
+  }
+
+  // 6to4 2002::/16 embeds an IPv4 address in the next 32 bits (groups 1-2).
+  if (g[0] === 0x2002) {
+    const a = (g[1] >> 8) & 0xff;
+    const b = g[1] & 0xff;
+    const c = (g[2] >> 8) & 0xff;
+    const d = g[2] & 0xff;
+    const inner = checkIPv4([a, b, c, d]);
+    if (!inner.ok) return { ok: false, reason: `6to4-embedded address: ${inner.reason}` };
+  }
+
   return { ok: true };
+}
+
+/** Reads the last 32 bits of an expanded IPv6 address as IPv4 octets. */
+function last32AsIPv4(g: number[]): [number, number, number, number] {
+  const a = (g[6] >> 8) & 0xff;
+  const b = g[6] & 0xff;
+  const c = (g[7] >> 8) & 0xff;
+  const d = g[7] & 0xff;
+  return [a, b, c, d];
 }

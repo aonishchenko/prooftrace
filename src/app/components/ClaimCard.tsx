@@ -9,9 +9,9 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   NOT_PUBLICLY_VERIFIABLE: "NOT PUBLICLY VERIFIABLE",
 };
 
-function VerdictBadge({ verdict }: { verdict?: Verdict }) {
+function VerdictBadge({ verdict, attempted }: { verdict?: Verdict; attempted: boolean }) {
   if (!verdict) {
-    return <span className="chip chip--verdict chip--verdict-none">NOT CHECKED</span>;
+    return <span className="chip chip--verdict chip--verdict-none">{attempted ? "UNVERIFIED" : "NOT CHECKED"}</span>;
   }
   return (
     <span className={`chip chip--verdict chip--verdict-${verdict.toLowerCase()}`}>
@@ -22,7 +22,20 @@ function VerdictBadge({ verdict }: { verdict?: Verdict }) {
 
 export function ClaimCard({ claim }: { claim: ClaimResult }) {
   const [showRequest, setShowRequest] = useState(false);
-  const satisfied = new Set(claim.evidence.flatMap((e) => e.satisfies));
+
+  // Only evidence that is independent, in scope, and fully supportive can tick
+  // a requirement - matches the backend's own verdict rule, so a checkmark
+  // here never contradicts the claim's overall verdict. Everything else
+  // (self-declared, out-of-scope, or partial support) still tells the reader
+  // something was found, but only as a neutral "partial / self-declared" note.
+  const isStrongEvidence = (e: (typeof claim.evidence)[number]) =>
+    e.independent && e.scopeMatch && e.supports === "full";
+  const satisfied = new Set(
+    claim.evidence.filter(isStrongEvidence).flatMap((e) => e.satisfies),
+  );
+  const weaklySatisfied = new Set(
+    claim.evidence.filter((e) => !isStrongEvidence(e)).flatMap((e) => e.satisfies),
+  );
 
   return (
     <article className="claim-card">
@@ -37,7 +50,7 @@ export function ClaimCard({ claim }: { claim: ClaimResult }) {
 
       <div className="claim-card__meta">
         <span className="chip chip--type">{claim.type}</span>
-        <VerdictBadge verdict={claim.verdict} />
+        <VerdictBadge verdict={claim.verdict} attempted={claim.required.length > 0 || claim.checkedUrls.length > 0} />
       </div>
 
       {claim.checks && claim.checks.length > 0 && (
@@ -57,12 +70,18 @@ export function ClaimCard({ claim }: { claim: ClaimResult }) {
         <div className="claim-card__section">
           <h4>Evidence required</h4>
           <ul>
-            {claim.required.map((req) => (
-              <li key={req} className={satisfied.has(req) ? "is-pass" : undefined}>
-                {satisfied.has(req) && <span aria-hidden="true">✓ </span>}
-                {req}
-              </li>
-            ))}
+            {claim.required.map((req) => {
+              const isFull = satisfied.has(req);
+              const isPartial = !isFull && weaklySatisfied.has(req);
+              return (
+                <li key={req} className={isFull ? "is-pass" : isPartial ? "is-partial" : undefined}>
+                  {isFull && <span aria-hidden="true">✓ </span>}
+                  {isPartial && <span aria-hidden="true">◐ </span>}
+                  {req}
+                  {isPartial && <span className="claim-card__partial-note"> partial / self-declared</span>}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

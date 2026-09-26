@@ -167,3 +167,40 @@ describe("MAX_PAGE_CHARS", () => {
     expect(MAX_PAGE_CHARS).toBe(60000);
   });
 });
+
+describe("CPU-safety on hostile unclosed-tag input (defect #5)", () => {
+  // A lazy `[\s\S]*?</a>` / script / comment span is O(n·k) once many such tags are opened but
+  // never closed: each failed match retries at the next character, re-scanning to the end every
+  // time. This must complete in well under a CPU-limit kill, not just "eventually".
+  it("handles 20k unclosed <a href=x> tags plus an unclosed <script> in well under 200ms", () => {
+    const anchors = "<a href=x>link text ".repeat(20000);
+    const html = `<html><body>${anchors}<script>var neverCloses = "${"x".repeat(5000)}";</body></html>`;
+
+    const start = performance.now();
+    const { text } = htmlToText(html);
+    const links = extractLinks(html, "https://example.com/");
+    const elapsed = performance.now() - start;
+
+    expect(elapsed).toBeLessThan(200);
+    // The unclosed <script> has no matching </script> anywhere, so stripRemovableBlocks bails out
+    // and drops everything from that point on — the preceding anchor text should still survive.
+    expect(text).toContain("link text");
+    // None of the 20k <a> tags ever close, so no link is ever extracted from them.
+    expect(links).toEqual([]);
+  });
+
+  it("still extracts links normally around a single unclosed <script> deep in the page", () => {
+    const html = `<a href="https://example.com/good">Good</a><script>var x = 1;`;
+    const links = extractLinks(html, "https://example.com/");
+    expect(links).toEqual([{ url: "https://example.com/good", text: "Good" }]);
+  });
+
+  it("caps HTML at 600KB before parsing", () => {
+    const huge = "<p>" + "a".repeat(700_000) + "</p>";
+    const start = performance.now();
+    const { text } = htmlToText(huge);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(200);
+    expect(text.length).toBeLessThanOrEqual(600_000);
+  });
+});

@@ -296,6 +296,23 @@ body {
   flex: 1 1 240px;
 }
 
+.stall-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--verdict-vague-bg);
+  border: 1px solid var(--verdict-vague-text);
+  color: var(--verdict-vague-text);
+}
+
+.stall-banner p {
+  margin: 0;
+  flex: 1 1 240px;
+}
+
 /* Status bar */
 
 .status-bar {
@@ -541,6 +558,16 @@ body {
 
 .claim-card__checks .is-fail {
   color: var(--verdict-npv-text);
+}
+
+.claim-card__section .is-partial {
+  color: var(--verdict-vague-text);
+}
+
+.claim-card__partial-note {
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+  font-style: italic;
 }
 
 .claim-card__section h4 {

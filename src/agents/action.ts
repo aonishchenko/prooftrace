@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Evidence } from "../shared/types";
 import type { ActionResult, ExtractedClaim, RuleResult } from "../shared/internal";
 import { callJson } from "./models";
+import { findExact } from "./quotes";
 
 const ActionRawSchema = z.object({
   rewrite: z.string().optional(),
@@ -72,6 +73,9 @@ function buildUserPrompt(
  * Draft the action for a claim's outcome. `rewrite` is only kept for VAGUE/NOT_PUBLICLY_VERIFIABLE
  * verdicts; `evidenceRequest` is only kept when `gaps` is non-empty. Both are enforced in code even
  * if the model returns them anyway, so the contract never depends on the model following instructions.
+ *
+ * Runs in the Coordinator, so a `ModelError` (e.g. "Not enough time left for the action model.") is
+ * allowed to throw — the Coordinator already treats action-writing failures as catchable.
  */
 export async function writeAction(
   env: Env,
@@ -80,19 +84,30 @@ export async function writeAction(
   required: string[],
   evidence: Evidence[],
   gaps: string[],
+  deadlineMs?: number,
 ): Promise<ActionResult> {
   const raw = await callJson(env, "action", {
     system: SYSTEM_PROMPT,
     user: buildUserPrompt(claim, rule, required, evidence, gaps),
     schema: ActionRawSchema,
     schemaName: "action_result",
+    deadlineMs,
+    overrides: { reasoning: "none", timeoutMs: 25000 },
   });
 
   const result: ActionResult = {
-    nextAction: raw.nextAction.trim(),
+    nextAction: rule.verdict === "BACKED"
+      ? raw.nextAction.trim()
+      : rule.verdict === "VAGUE"
+        ? "Ask the brand to define this claim in measurable terms and provide independent evidence before repeating it."
+        : "Request the missing independent evidence before treating this claim as verified.",
   };
 
-  if (rule.verdict !== "BACKED" && raw.rewrite?.trim()) {
+  // A free-form rewrite can introduce unsupported facts even when the model was told not to.
+  // Only show wording that is itself quoted by a verified, independent, in-scope source.
+  if (rule.verdict !== "BACKED" && raw.rewrite?.trim() && evidence.some(
+    (item) => item.independent && item.scopeMatch && item.supports === "full" && findExact(item.quote, raw.rewrite!),
+  )) {
     result.rewrite = raw.rewrite.trim();
   }
   if (gaps.length > 0 && raw.evidenceRequest?.trim()) {

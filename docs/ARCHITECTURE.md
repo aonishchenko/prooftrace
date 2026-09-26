@@ -49,9 +49,10 @@ avoids asking a language model to pretend it searched or to treat a search-resul
   Action](https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/) via the `BROWSER` binding.
   Use its [links action](https://developers.cloudflare.com/browser-run/quick-actions/links-endpoint/) when link
   discovery is needed. Keep the actual retrieval method in the record.
-- `search_web(query)`: call the [Brave Web Search API](https://api-dashboard.search.brave.com/app/documentation/web-search)
-  from the Worker with `BRAVE_SEARCH_API_KEY` stored as a Worker secret. Take URLs and metadata only. No Brave answer
-  or language model endpoint is used. A search hit is a lead, not evidence; `fetch_page` must open it before citation.
+- `search_web(query)`: call the [Tavily Search API](https://docs.tavily.com/documentation/api-reference/endpoint/search)
+  from the Worker with `TAVILY_API_KEY` stored as a Worker secret. Brave Search is an optional fallback. Take URLs and
+  metadata only, without answer generation or model inference. A search hit is a lead, not evidence; `fetch_page`
+  must open it before citation. For a matching registry, also search within that issuer's domain.
 - `lookup_official_source(name)`: a small D1 directory of certifiers and known issuer domains helps rank or directly
   open an official register. It supplements broad search; it does not replace it for arbitrary URLs.
 - `calculate(...)`: safe, bounded arithmetic in code for a quantitative claim. Never evaluate model-generated code.
@@ -90,20 +91,15 @@ These are capability-based defaults, not a measured ranking for sustainability c
 |---|---|---|---|
 | Coordinator route and Scout tool execution | Code | — | Explicit claim type, URL validation, requests and source records should be deterministic. |
 | Claim extraction | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Structured output, with a programmatic exact-substring check against the live page. |
-| Certification Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about issuer, brand and certification scope from fetched pages; Pro supports function calling. |
-| Quantitative Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `high` | Reason about comparison baseline, method and assumptions. Arithmetic runs in code. |
-| Sourcing Specialist | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `high` | Interpret broad wording against specific cited facts. Compare with hosted GLM-5.3 on the Lush case if time permits. |
+| Certification Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `low` for assessment, `none` for planning | Reason about issuer, brand and certification scope from fetched pages. |
+| Quantitative Specialist | [`@cf/deepseek-ai/deepseek-v4-pro-0813`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/) | `low` for assessment, `none` for planning | Reason about comparison baseline, method and assumptions. Arithmetic runs in code. |
+| Sourcing Specialist | [`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/) | `low` for assessment, `none` for planning | Interpret broad wording against specific cited facts within the live run budget. |
 | Action writing | [`@cf/moonshotai/kimi-k2.6`](https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/) | `none` | Write only from the rule result and fetched evidence. |
 
-[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is a hosted alternative
-for sourcing. [`@cf/deepseek-ai/deepseek-v4-flash-0731`](https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/)
-is a hosted latency fallback for Pro. Do not add third-party inference IDs through AI Gateway. Run one actual model
-and Browser Run call during setup to confirm paid access, schema/tool behavior and latency.
-
-Use `workers-ai-provider` with the `AI` binding and `gateway: { id: "prooftrace" }`. With AI SDK v6, use
-`generateText({ output: Output.object({ schema }) })` for structured outputs. Pin compatible versions and test the
-provider's mapping of each model's reasoning option. AI Gateway caching is optional and only identical requests
-can hit; it cannot replace live evidence collection.
+[`@cf/zai-org/glm-5.3`](https://developers.cloudflare.com/workers-ai/models/glm-5.3/) is the hosted extractor fallback.
+DeepSeek Flash is the certification and quantitative fallback; Kimi is the sourcing fallback. The implementation
+calls the Workers AI `AI` binding directly with JSON schema output. AI Gateway is optional and can be enabled with
+`AI_GATEWAY_ID`; it cannot replace live evidence collection. No third-party inference IDs are configured.
 
 ## 3. Agents, state and data contract
 
@@ -165,7 +161,7 @@ export interface Evidence {
 
 export interface ClaimResult {
   claimId: string;
-  text: string;                     // exact substring of the submitted page
+  text: string;                     // exact substring of the submitted or discovered page
   sourceUrl: string;
   type: "certification" | "quantitative" | "sourcing" | "generic";
   required: string[];
@@ -207,7 +203,7 @@ as a collection failure. Evidence requests are drafts and are never sent.
 
 The [Browser Run binding](https://developers.cloudflare.com/browser-run/quick-actions/) supports Markdown and links
 Quick Actions without a Browser Run API token. It requires a compatibility date of at least `2026-03-24`; local
-development needs remote browser mode. The Brave Search key is separate and is kept in a Wrangler secret.
+development needs remote browser mode. The Tavily Search key is separate and is kept in a Wrangler secret.
 
 ```jsonc
 {
@@ -232,7 +228,7 @@ development needs remote browser mode. The Brave Search key is separate and is k
 }
 ```
 
-Set `BRAVE_SEARCH_API_KEY` using `wrangler secret put`, never in the repo. Use the Cloudflare Vite plugin's asset
+Set `TAVILY_API_KEY` using `wrangler secret put`, never in the repo. Use the Cloudflare Vite plugin's asset
 build path. Generate Worker types after changing bindings; do not enable `experimentalDecorators` for `@callable`.
 
 ## 6. Repository layout
